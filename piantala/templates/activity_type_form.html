@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.activity_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("activity_types.title") }}</h1>
+        <p>{{ tr("activity_types.description") }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("activity_types.name") }}</span>
+        {{ form.name(class_="input") }}
+      </label>
+
+      <label>
+        <span>{{ tr("activity_types.sort_order") }}</span>
+        {{ form.sort_order(class_="input") }}
+      </label>
+
+      <label class="full-width">
+        <span>{{ tr("node.description") }}</span>
+        {{ form.description(class_="input input-textarea") }}
+      </label>
+
+      <div class="form-actions">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.activity_types') }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

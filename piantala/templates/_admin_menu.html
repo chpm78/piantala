@@ -1,0 +1,24 @@
+<section class="admin-bar">
+  <div class="admin-breadcrumb">
+    <a class="text-link" href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>
+    <span>/</span>
+    <a class="text-link" href="{{ url_for('admin.index') }}">{{ tr("nav.admin") }}</a>
+    {% if admin_section %}
+      <span>/</span>
+      <span>{{ admin_section }}</span>
+    {% endif %}
+  </div>
+
+  <nav class="admin-menu">
+    {% if current_user.has_permission('manage_content') %}
+      <a class="{% if request.endpoint == 'main.map_settings' %}is-active{% endif %}" href="{{ url_for('main.map_settings') }}">{{ tr("admin.section.garden") }}</a>
+      <a class="{% if request.endpoint in ['admin.activity_types', 'admin.edit_activity_type'] %}is-active{% endif %}" href="{{ url_for('admin.activity_types') }}">{{ tr("admin.section.activity_types") }}</a>
+      <a class="{% if request.endpoint in ['admin.link_types', 'admin.edit_link_type'] %}is-active{% endif %}" href="{{ url_for('admin.link_types') }}">{{ tr("admin.section.link_types") }}</a>
+    {% endif %}
+    {% if current_user.has_permission('manage_users') %}
+      <a class="{% if request.endpoint in ['admin.users', 'admin.create_user', 'admin.edit_user'] %}is-active{% endif %}" href="{{ url_for('admin.users') }}">{{ tr("admin.section.users") }}</a>
+      <a class="{% if request.endpoint in ['admin.home_assistant_settings', 'admin.home_assistant_test', 'admin.home_assistant_sync'] %}is-active{% endif %}" href="{{ url_for('admin.home_assistant_settings') }}">{{ tr("admin.section.home_assistant") }}</a>
+      <a class="{% if request.endpoint == 'admin.translations' %}is-active{% endif %}" href="{{ url_for('admin.translations') }}">{{ tr("admin.section.translations") }}</a>
+    {% endif %}
+  </nav>
+</section>

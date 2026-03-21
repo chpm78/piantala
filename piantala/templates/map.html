@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <p class="eyebrow">{{ tr("map.title") }}</p>
+      <h1>{{ settings.site_name }}</h1>
+      <p>{{ settings.welcome_text }}</p>
+    </div>
+    {% if current_user.has_permission('manage_content') %}
+      <div class="hero-actions">
+        <a class="button" href="{{ url_for('main.create_root_node') }}">{{ tr("map.add_location") }}</a>
+        <a class="button button-secondary" href="{{ url_for('main.map_settings') }}">{{ tr("map.configure") }}</a>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>{{ tr("map.overview") }}</h2>
+      <p>{{ tr("map.overview_text") }}</p>
+    </div>
+
+    {% if settings.map_provider == "google" %}
+      {% if google_maps_enabled %}
+        <div
+          class="google-map-canvas"
+          data-google-map="overview"
+          data-center-lat="{{ settings.google_maps_center_lat if settings.google_maps_center_lat is not none else 0 }}"
+          data-center-lng="{{ settings.google_maps_center_lng if settings.google_maps_center_lng is not none else 0 }}"
+          data-zoom="{{ settings.google_maps_zoom or 19 }}"
+          data-locations='{{ geo_locations | tojson }}'
+        ></div>
+        <p class="hint">
+          {{ tr("map.google_active") }}
+        </p>
+      {% else %}
+        <div class="empty-state">
+          <h3>{{ tr("map.google_missing") }}</h3>
+          <p>{{ tr("map.google_missing_text") }}</p>
+        </div>
+      {% endif %}
+    {% elif settings.map_provider in ["openstreetmap", "opentopomap"] %}
+      <div
+        class="google-map-canvas"
+        data-leaflet-map="overview"
+        data-tile-provider="{{ settings.map_provider }}"
+        data-center-lat="{{ settings.google_maps_center_lat if settings.google_maps_center_lat is not none else 0 }}"
+        data-center-lng="{{ settings.google_maps_center_lng if settings.google_maps_center_lng is not none else 0 }}"
+        data-zoom="{{ settings.google_maps_zoom or 19 }}"
+        data-locations='{{ geo_locations | tojson }}'
+      ></div>
+      <p class="hint">
+        {{ "OpenStreetMap" if settings.map_provider == "openstreetmap" else "OpenTopoMap" }}
+        {{ tr("map.osm_active_suffix") }}
+      </p>
+    {% elif settings.map_image_path %}
+      <div class="garden-map js-map-clickable">
+        <img
+          src="{{ url_for('static', filename=settings.map_image_path) }}"
+          alt="Garden map"
+        >
+        {% for location in locations %}
+          <a
+            class="map-marker"
+            href="{{ url_for('main.node_detail', node_id=location.id) }}"
+            style="left: {{ location.map_x or 50 }}%; top: {{ location.map_y or 50 }}%;"
+            title="{{ location.title }}"
+          >
+            <span>{{ loop.index }}</span>
+          </a>
+        {% endfor %}
+      </div>
+      {% if current_user.has_permission('manage_content') %}
+        <p class="hint js-map-coords">{{ tr("map.image_click_hint") }}</p>
+      {% endif %}
+    {% else %}
+      <div class="empty-state">
+        <h3>{{ tr("map.no_image_title") }}</h3>
+        <p>{{ tr("map.no_image_text") }}</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>{{ tr("map.locations") }}</h2>
+      <p>{{ tr("map.locations_text") }}</p>
+    </div>
+
+    {% if locations %}
+      <div class="card-grid">
+        {% for location in locations %}
+          <article class="card">
+            {% if location.display_image %}
+              <a class="card-media-link" href="{{ url_for('main.node_detail', node_id=location.id) }}">
+                <div class="card-image-shell" style="{{ location.image_display_style }}">
+                  <img
+                    class="card-image"
+                    src="{{ url_for('static', filename=location.display_image) }}"
+                    alt="{{ location.title }}"
+                  >
+                </div>
+              </a>
+            {% endif %}
+            <div class="card-body">
+              <p class="eyebrow">{{ location.level_label }}</p>
+              <h3>
+                <a class="card-title-link" href="{{ url_for('main.node_detail', node_id=location.id) }}">{{ location.title }}</a>
+              </h3>
+              <p>{{ location.summary or tr("common.no_summary") }}</p>
+              <a class="text-link" href="{{ url_for('main.node_detail', node_id=location.id) }}">{{ tr("map.open_location") }}</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>{{ tr("map.no_locations") }}</h3>
+        <p>{{ tr("map.no_locations_text") }}</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  {% if settings.map_provider == "google" and google_maps_enabled %}
+    <script async src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initPiantalaGoogleMaps"></script>
+  {% elif settings.map_provider in ["openstreetmap", "opentopomap"] %}
+    <script>
+      window.initPiantalaLeafletMaps();
+    </script>
+  {% endif %}
+{% endblock %}

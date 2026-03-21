@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.overview") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("admin.title") }}</h1>
+        <p>{{ tr("admin.description") }}</p>
+      </div>
+    </div>
+
+    <div class="card-grid">
+      {% if current_user.has_permission('manage_content') %}
+        <article class="card">
+          <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.garden") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('main.map_settings') }}">{{ tr("admin.section.garden") }}</a></h3>
+            <p>{{ tr("admin.card.garden") }}</p>
+            <a class="text-link" href="{{ url_for('main.map_settings') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.activity_types") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.activity_types') }}">{{ tr("admin.section.activity_types") }}</a></h3>
+            <p>{{ tr("admin.card.activity_types") }}</p>
+            <a class="text-link" href="{{ url_for('admin.activity_types') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.link_types") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.link_types') }}">{{ tr("admin.section.link_types") }}</a></h3>
+            <p>{{ tr("admin.card.link_types") }}</p>
+            <a class="text-link" href="{{ url_for('admin.link_types') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+      {% endif %}
+
+      {% if current_user.has_permission('manage_users') %}
+        <article class="card">
+          <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.users") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.users') }}">{{ tr("admin.section.users") }}</a></h3>
+            <p>{{ tr("admin.card.users") }}</p>
+            <a class="text-link" href="{{ url_for('admin.users') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.home_assistant") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.home_assistant_settings') }}">{{ tr("admin.section.home_assistant") }}</a></h3>
+            <p>{{ tr("admin.card.ha") }}</p>
+            <a class="text-link" href="{{ url_for('admin.home_assistant_settings') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.translations") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.translations') }}">{{ tr("admin.section.translations") }}</a></h3>
+            <p>{{ tr("admin.card.translations") }}</p>
+            <a class="text-link" href="{{ url_for('admin.translations') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

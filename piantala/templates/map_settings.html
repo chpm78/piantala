@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.garden") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <p class="eyebrow">{{ tr("map_settings.heading") }}</p>
+      <h1>{{ tr("map_settings.title") }}</h1>
+      <p>{{ tr("map_settings.description") }}</p>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("map_settings.general") }}</p>
+            <h2>{{ tr("map_settings.identity") }}</h2>
+          </div>
+        </div>
+
+        <label>
+          <span>{{ tr("map_settings.site_name") }}</span>
+          {{ form.site_name(class_="input") }}
+        </label>
+
+        <label class="full-width">
+          <span>{{ tr("map_settings.welcome_text") }}</span>
+          {{ form.welcome_text(class_="input input-textarea") }}
+        </label>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("map_settings.appearance") }}</p>
+            <h2>{{ tr("map_settings.theme") }}</h2>
+          </div>
+        </div>
+
+        <label>
+          <span>{{ tr("map_settings.color_scheme") }}</span>
+          {{ form.color_scheme(class_="input") }}
+        </label>
+
+        <label>
+          <span>{{ tr("map_settings.font_family") }}</span>
+          {{ form.font_family(class_="input") }}
+        </label>
+
+        <label>
+          <span>{{ tr("map_settings.default_language") }}</span>
+          {{ form.default_locale(class_="input") }}
+        </label>
+
+        <div class="theme-preview full-width">
+          <div class="theme-preview-card theme-earth">
+            <strong>Earth</strong>
+            <span>Warm garden notebook</span>
+          </div>
+          <div class="theme-preview-card theme-sage">
+            <strong>Sage</strong>
+            <span>Soft botanical palette</span>
+          </div>
+          <div class="theme-preview-card theme-terracotta">
+            <strong>Terracotta</strong>
+            <span>Dry soil and clay tones</span>
+          </div>
+          <div class="theme-preview-card theme-slate">
+            <strong>Slate</strong>
+            <span>Cool, precise contrast</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("nav.map") }}</p>
+            <h2>{{ tr("map_settings.provider") }}</h2>
+          </div>
+        </div>
+
+        <label>
+          <span>{{ tr("map_settings.homepage_provider") }}</span>
+          {{ form.map_provider(class_="input", data_map_provider_select="true") }}
+        </label>
+
+        <div
+          class="provider-panel"
+          data-provider-panel="image"
+        >
+          <label>
+            <span>{{ tr("map_settings.map_image") }}</span>
+            {{ form.map_image(class_="input") }}
+          </label>
+          <p class="hint">
+            Use a custom image when you want a hand-drawn plan or annotated overhead photo as the homepage map.
+          </p>
+        </div>
+
+        <div
+          class="provider-panel"
+          data-provider-panel="google"
+        >
+          <p class="hint">
+            Google Maps requires `GOOGLE_MAPS_API_KEY` in your `.env` file.
+          </p>
+        </div>
+
+        <div
+          class="provider-panel"
+          data-provider-panel="openstreetmap opentopomap"
+        >
+          <p class="hint">
+            OpenStreetMap and OpenTopoMap do not require an API key.
+          </p>
+        </div>
+
+        <div
+          class="provider-panel"
+          data-provider-panel="google openstreetmap opentopomap"
+        >
+          <label>
+            <span>Map center latitude</span>
+            {{ form.google_maps_center_lat(class_="input") }}
+          </label>
+
+          <label>
+            <span>Map center longitude</span>
+            {{ form.google_maps_center_lng(class_="input") }}
+          </label>
+
+          <label>
+            <span>Map zoom</span>
+            {{ form.google_maps_zoom(class_="input") }}
+          </label>
+
+          <p class="hint">
+            Child-node navigation still uses image hotspots on lower levels.
+          </p>
+        </div>
+      </div>
+
+      <div class="full-width">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+      </div>
+    </form>
+
+    {% if settings.map_image_path %}
+      <div class="inline-map-help">
+        <h2>{{ tr("map_settings.current_map") }}</h2>
+        <img class="settings-map-preview" src="{{ url_for('static', filename=settings.map_image_path) }}" alt="Current map">
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

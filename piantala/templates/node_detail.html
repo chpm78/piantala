@@ -1,0 +1,484 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel detail-panel">
+    <div class="breadcrumb-row">
+      <a class="text-link" href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>
+      {% for crumb in node.breadcrumbs() %}
+        <span>/</span>
+        {% if loop.last %}
+          <span>{{ crumb.title }}</span>
+        {% else %}
+          <a class="text-link" href="{{ url_for('main.node_detail', node_id=crumb.id) }}">{{ crumb.title }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="detail-header">
+      <div>
+        <p class="eyebrow">{{ node.level_label }} · {{ node.node_type }}</p>
+        <h1>{{ node.title }}</h1>
+        <p>{{ node.summary or tr("common.no_summary") }}</p>
+        {% if (node.quantity and node.quantity != 1) or node.life_cycle or node.planting_date or node.death_year %}
+          <div class="detail-meta">
+            {% if node.quantity and node.quantity != 1 %}
+              <span class="status-pill">{{ tr("node.quantity_short") }}: {{ node.quantity }}</span>
+            {% endif %}
+            {% if node.life_cycle %}
+              <span class="status-pill">{{ tr("node.lifecycle_details") }}: {{ tr("node." ~ node.life_cycle) }}</span>
+            {% endif %}
+            {% if node.planting_date %}
+              <span class="status-pill">{{ tr("node.planting_date") }}: {{ node.planting_date.strftime("%d/%m/%Y") }}</span>
+            {% endif %}
+            {% if node.death_year %}
+              <span class="status-pill status-pill-dead">{{ tr("node.dead_in") }} {{ node.death_year }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+      {% if current_user.has_permission('manage_content') %}
+        <div class="hero-actions">
+          {% if node.can_have_children() %}
+            <a class="button" href="{{ url_for('main.create_child_node', node_id=node.id) }}">{{ tr("node.add_child") }}</a>
+          {% endif %}
+          <a class="button button-secondary" href="{{ url_for('main.edit_node', node_id=node.id) }}">{{ tr("node.edit_node") }}</a>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if current_image_path %}
+      <div class="inline-map-help">
+        <div class="panel-header">
+          <div>
+            <h2>{{ tr("node.visual_navigation") }}</h2>
+            <p>
+              {% if selected_photo %}
+                {{ tr("node.latest_photo_text") }}
+              {% else %}
+                {{ tr("node.hotspots_help") }}
+              {% endif %}
+            </p>
+          </div>
+          {% if selected_photo %}
+            <div class="timeline-current-meta">
+              <strong>{{ selected_photo.taken_at.strftime("%d %b %Y") }}</strong>
+              {% if selected_photo.caption %}
+                <span>{{ selected_photo.caption }}</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+        <div class="garden-map image-overlay">
+          <div class="image-stage">
+            <img
+              class="stage-image"
+              src="{{ url_for('static', filename=current_image_path) }}"
+              alt="{{ node.title }}"
+            >
+            {% for child in image_children %}
+              <a
+                class="image-hotspot image-hotspot-{{ child.overlay_shape or 'point' }} image-hotspot-node-{{ child.node_type or 'custom' }}"
+                href="{{ url_for('main.node_detail', node_id=child.id) }}"
+                style="left: {{ child.map_x }}%; top: {{ child.map_y }}%; --hotspot-color: {{ child.hotspot_color or '#2f6f4f' }};{% if child.overlay_shape == 'area' %} --overlay-width: {{ child.overlay_width or 18 }}%; --overlay-height: {{ child.overlay_height or 12 }}%;{% endif %}"
+                title="{{ child.title }}"
+                data-title="{{ child.title }}"
+                aria-label="{{ child.title }}"
+              ></a>
+            {% endfor %}
+            {% for entity in image_entities %}
+              {% set catalog_entry = ha_catalog_by_entity_id.get(entity.entity_id) %}
+              {% set entity_value = (catalog_entry.state if catalog_entry else entity.current_value) or tr("node.not_available") %}
+              {% set entity_unit = catalog_entry.unit_of_measurement if catalog_entry and catalog_entry.unit_of_measurement else entity.unit_of_measurement %}
+              {% set entity_overlay_title = entity.label ~ ': ' ~ entity_value ~ ((' ' ~ entity_unit) if entity_unit else '') %}
+              <div
+                class="image-entity"
+                style="left: {{ entity.map_x }}%; top: {{ entity.map_y }}%;"
+                data-title="{{ entity_overlay_title }}"
+                aria-label="{{ entity_overlay_title }}"
+              ></div>
+            {% endfor %}
+          </div>
+        </div>
+        {% if ordered_photos %}
+          <div class="photo-timeline" aria-label="Photo timeline">
+            {% for photo in ordered_photos %}
+              <a
+                class="timeline-chip {% if selected_photo and selected_photo.id == photo.id %}is-active{% endif %}"
+                href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None) }}"
+              >
+                <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
+                <span>{{ photo.taken_at.strftime("%b %Y") }}</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if not image_children and not image_entities %}
+          <p class="hint">{{ tr("node.overlays_empty") }}</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if node.notes %}
+      <div class="note-box">
+        <h2>{{ tr("node.notes") }}</h2>
+        <p>{{ node.notes }}</p>
+      </div>
+    {% endif %}
+
+    {% if current_user.has_permission('manage_content') %}
+      <form method="post" action="{{ url_for('main.delete_node', node_id=node.id) }}" class="inline-delete">
+        {{ delete_form.hidden_tag() }}
+        <button type="submit" class="button button-danger" data-confirm="Delete this node and all nested content?">{{ tr("node.delete_node") }}</button>
+      </form>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>{{ tr("node.child_nodes") }}</h2>
+      <p>{{ tr("node.children_help") }}</p>
+    </div>
+
+    <form method="get" class="inline-toggle">
+      {% if selected_photo %}
+        <input type="hidden" name="photo" value="{{ selected_photo.id }}">
+      {% endif %}
+      <label class="inline-check">
+        <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} onchange="this.form.submit()">
+        <span>{{ tr("node.show_dead_plants") }}</span>
+      </label>
+    </form>
+
+    {% if visible_children %}
+      <div class="card-grid">
+        {% for child in visible_children %}
+          <article class="card {% if child.is_dead %}is-dead{% endif %}">
+            {% if child.display_image %}
+              <a class="card-media-link" href="{{ url_for('main.node_detail', node_id=child.id) }}">
+                <div class="card-image-shell" style="{{ child.image_display_style }}">
+                  <img class="card-image" src="{{ url_for('static', filename=child.display_image) }}" alt="{{ child.title }}">
+                </div>
+              </a>
+            {% endif %}
+            <div class="card-body">
+              <p class="eyebrow">{{ child.level_label }}</p>
+              <h3>
+                <a class="card-title-link" href="{{ url_for('main.node_detail', node_id=child.id) }}">{{ child.title }}</a>
+              </h3>
+              {% if (child.quantity and child.quantity != 1) or child.life_cycle or child.planting_date or child.death_year %}
+                <div class="card-meta">
+                  {% if child.quantity and child.quantity != 1 %}
+                    <span class="status-pill">{{ tr("node.quantity_short") }}: {{ child.quantity }}</span>
+                  {% endif %}
+                  {% if child.life_cycle %}
+                    <span class="status-pill">{{ tr("node." ~ child.life_cycle) }}</span>
+                  {% endif %}
+                  {% if child.planting_date %}
+                    <span class="status-pill">{{ child.planting_date.strftime("%d/%m/%Y") }}</span>
+                  {% endif %}
+                  {% if child.death_year %}
+                    <span class="status-pill status-pill-dead">{{ tr("node.dead_in") }} {{ child.death_year }}</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+              <p>{{ child.summary or tr("common.no_summary") }}</p>
+              <a class="text-link" href="{{ url_for('main.node_detail', node_id=child.id) }}">{{ tr("common.open") }}</a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>{{ tr("node.no_children") }}</h3>
+        <p>{{ tr("node.no_children_text") }}</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="three-col-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.photos") }}</h2>
+        <p>{{ tr("node.photos_help") }}</p>
+      </div>
+
+      {% if ordered_photos %}
+        <div class="stack-list">
+          {% for photo in ordered_photos %}
+            <div class="list-item">
+              <a class="thumb-link" href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None) }}">
+                <img class="thumb" src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
+              </a>
+              <div class="list-copy">
+                <strong>{{ photo.title }}</strong>
+                <p>{{ tr("node.taken_on") }}: {{ photo.taken_at.strftime("%d %b %Y") }}</p>
+                <p>{{ photo.caption or "No caption." }}</p>
+              </div>
+              {% if current_user.has_permission('manage_content') %}
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_photo', photo_id=photo.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_photo', photo_id=photo.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this photo?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">{{ tr("node.no_photos") }}</p>
+      {% endif %}
+
+      {% if current_user.has_permission('manage_content') %}
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('main.add_photo', node_id=node.id) }}" class="form-grid">
+          {{ photo_form.hidden_tag() }}
+          <label class="full-width">
+            <span>{{ tr("node.images_label") }}</span>
+            {{ photo_form.images(class_="input", multiple=true) }}
+            <small class="hint">{{ tr("node.upload_hint") }}</small>
+          </label>
+          <label class="full-width">
+            <span>{{ tr("node.shared_caption") }}</span>
+            {{ photo_form.caption(class_="input input-textarea") }}
+          </label>
+          {{ photo_form.submit(class_="button", value=tr("common.save")) }}
+        </form>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.activities") }}</h2>
+        <p>{{ tr("node.activity_help") }}</p>
+      </div>
+
+      {% if node.activities %}
+        <div class="stack-list">
+          {% for activity in node.activities %}
+            <div class="list-item vertical">
+              <div class="list-copy">
+                <strong>{{ activity.activity_type.name }}</strong>
+                <p>{{ tr("node.activity_date") }}: {{ activity.happened_on.strftime("%d/%m/%Y") }}</p>
+                <p>{{ activity.description }}</p>
+                {% if activity.images %}
+                  <div class="activity-image-grid">
+                    {% for image in activity.images %}
+                      <a class="activity-image-link" href="{{ url_for('static', filename=image.image_path) }}" target="_blank" rel="noreferrer">
+                        <img src="{{ url_for('static', filename=image.image_path) }}" alt="{{ image.title }}">
+                      </a>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+              {% if current_user.has_permission('manage_content') %}
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_activity', activity_id=activity.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_activity', activity_id=activity.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this activity?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">{{ tr("node.no_activities") }}</p>
+      {% endif %}
+
+      {% if current_user.has_permission('manage_content') %}
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('main.add_activity', node_id=node.id) }}" class="form-grid">
+          {{ activity_form.hidden_tag() }}
+          <label>
+            <span>{{ tr("node.activity_type") }}</span>
+            {{ activity_form.activity_type_id(class_="input") }}
+          </label>
+          <label>
+            <span>{{ tr("node.activity_date") }}</span>
+            {{ activity_form.happened_on(class_="input") }}
+          </label>
+          <label class="full-width">
+            <span>{{ tr("node.description") }}</span>
+            {{ activity_form.description(class_="input input-textarea") }}
+          </label>
+          <label class="full-width">
+            <span>{{ tr("node.images_label") }}</span>
+            {{ activity_form.images(class_="input", multiple=true) }}
+            <small class="hint">{{ tr("node.activity_images_hint") }}</small>
+          </label>
+          {{ activity_form.submit(class_="button", value=tr("node.add_activity")) }}
+        </form>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.external_links") }}</h2>
+        <p>{{ tr("node.link_help") }}</p>
+      </div>
+
+      {% if node.external_links %}
+        <div class="stack-list">
+          {% for link in node.external_links %}
+            <div class="list-item vertical">
+              <div class="list-copy">
+                <strong><a class="text-link" href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.display_label(current_locale) }}</a></strong>
+                {% if link.link_type %}
+                  <p><span class="status-pill">{{ link.link_type.localized_name(current_locale) }}</span></p>
+                {% endif %}
+                <p>{{ link.description or link.url }}</p>
+              </div>
+              {% if current_user.has_permission('manage_content') %}
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_link', link_id=link.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_link', link_id=link.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this link?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">{{ tr("node.no_links") }}</p>
+      {% endif %}
+
+      {% if current_user.has_permission('manage_content') %}
+        <form method="post" action="{{ url_for('main.add_link', node_id=node.id) }}" class="form-grid">
+          {{ link_form.hidden_tag() }}
+          <label>
+            <span>{{ tr("node.link_type") }}</span>
+            {{ link_form.link_type_id(class_="input") }}
+          </label>
+          <label>
+            <span>{{ tr("node.label") }}</span>
+            {{ link_form.label(class_="input") }}
+            <small class="hint">{{ tr("node.link_label_help") }}</small>
+          </label>
+          <label>
+            <span>{{ tr("node.url") }}</span>
+            {{ link_form.url(class_="input") }}
+          </label>
+          <label class="full-width">
+            <span>{{ tr("node.description") }}</span>
+            {{ link_form.description(class_="input input-textarea") }}
+          </label>
+          {{ link_form.submit(class_="button", value=tr("common.save")) }}
+        </form>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.home_assistant") }}</h2>
+        <p>{{ tr("node.entity_help") }}</p>
+      </div>
+
+      {% if node.ha_entities %}
+        <div class="stack-list">
+          {% for entity in node.ha_entities %}
+            <div class="list-item vertical">
+              <div class="list-copy">
+                <strong>{{ entity.label }}</strong>
+                <p>{{ entity.entity_id }}</p>
+                {% set catalog_entry = ha_catalog_by_entity_id.get(entity.entity_id) %}
+                <p>
+                  {{ tr("node.value") }}:
+                  {{ (catalog_entry.state if catalog_entry else entity.current_value) or tr("node.not_available") }}
+                  {% if (catalog_entry.unit_of_measurement if catalog_entry else entity.unit_of_measurement) %}
+                    {{ catalog_entry.unit_of_measurement if catalog_entry else entity.unit_of_measurement }}
+                  {% endif %}
+                </p>
+                <p>{{ tr("node.shown") }}: {{ tr("node.yes") if entity.show_on_image else tr("node.no") }}</p>
+                {% if entity.show_on_image and entity.map_x is not none and entity.map_y is not none %}
+                  <p>{{ tr("node.position") }}: X {{ "%.1f"|format(entity.map_x) }}%, Y {{ "%.1f"|format(entity.map_y) }}%</p>
+                {% endif %}
+                {% if entity.notes %}
+                  <p>{{ entity.notes }}</p>
+                {% endif %}
+              </div>
+              {% if current_user.has_permission('manage_content') %}
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_entity', entity_id=entity.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_entity', entity_id=entity.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this entity?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">{{ tr("node.no_entities") }}</p>
+      {% endif %}
+
+      {% if current_user.has_permission('manage_content') %}
+        <form method="post" action="{{ url_for('main.add_entity', node_id=node.id) }}" class="form-grid">
+          {{ entity_form.hidden_tag() }}
+          {% if ha_is_configured and ha_catalog_count > 0 %}
+            <label class="full-width">
+              <span>{{ tr("node.discovered_entity") }}</span>
+              {{ entity_form.discovered_entity(class_="input") }}
+            </label>
+          {% elif ha_is_configured %}
+            <div class="empty-state full-width">
+              <h3>{{ tr("node.no_entities") }}</h3>
+              <p>{{ tr("node.entity_catalog_empty") }}</p>
+            </div>
+          {% else %}
+            <div class="empty-state full-width">
+              <h3>{{ tr("node.entity_no_config_title") }}</h3>
+              <p>{{ tr("node.entity_not_configured") }}</p>
+            </div>
+          {% endif %}
+          <label>
+            <span>{{ tr("node.friendly_name") }}</span>
+            {{ entity_form.label(class_="input") }}
+          </label>
+          <label class="inline-check">
+            {{ entity_form.show_on_image() }}
+            <span>{{ tr("node.show_on_image") }}</span>
+          </label>
+          <label>
+            <span>{{ tr("node.image_x") }}</span>
+            {{ entity_form.map_x(class_="input", id="entity_map_x") }}
+          </label>
+          <label>
+            <span>{{ tr("node.image_y") }}</span>
+            {{ entity_form.map_y(class_="input", id="entity_map_y") }}
+          </label>
+          <label class="full-width">
+            <span>{{ tr("node.notes_short") }}</span>
+            {{ entity_form.notes(class_="input input-textarea") }}
+          </label>
+          {% if current_image_path %}
+            <div class="inline-map-help full-width">
+              <h3>{{ tr("node.entity_helper_title") }}</h3>
+              <p>{{ tr("node.entity_helper_text") }}</p>
+              <div
+                class="garden-map image-overlay"
+                data-coordinate-picker="image"
+                data-x-input="entity_map_x"
+                data-y-input="entity_map_y"
+                data-feedback-target="entity-picker-feedback"
+              >
+                <div class="image-stage image-stage-helper">
+                  <img
+                    class="stage-image"
+                    src="{{ url_for('static', filename=current_image_path) }}"
+                    alt="{{ node.title }}"
+                  >
+                </div>
+              </div>
+              <p id="entity-picker-feedback" class="hint">Click the image to estimate entity marker coordinates.</p>
+            </div>
+          {% endif %}
+          {{ entity_form.submit(class_="button", value=tr("common.save"), disabled=not ha_is_configured or ha_catalog_count == 0) }}
+        </form>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

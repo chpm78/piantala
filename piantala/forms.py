@@ -1,0 +1,400 @@
+from __future__ import annotations
+
+from urllib.parse import urlparse
+
+from flask_wtf import FlaskForm
+from flask_wtf.file import FileAllowed, FileField, MultipleFileField
+from wtforms import (
+    BooleanField,
+    DateField,
+    DecimalField,
+    IntegerField,
+    PasswordField,
+    SelectField,
+    SelectMultipleField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
+from wtforms.validators import DataRequired, Email, EqualTo, Length, NumberRange, Optional, URL, ValidationError
+
+from .models import User
+
+
+IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp"]
+
+
+class LoginForm(FlaskForm):
+    username = StringField("Username", validators=[DataRequired(), Length(max=80)])
+    password = PasswordField("Password", validators=[DataRequired()])
+    remember = BooleanField("Remember me")
+    submit = SubmitField("Log in")
+
+
+class MapSettingsForm(FlaskForm):
+    site_name = StringField("Site name", validators=[DataRequired(), Length(max=120)])
+    welcome_text = TextAreaField("Welcome text", validators=[DataRequired(), Length(max=1000)])
+    color_scheme = SelectField(
+        "Color scheme",
+        choices=[
+            ("earth", "Earth"),
+            ("sage", "Sage"),
+            ("terracotta", "Terracotta"),
+            ("slate", "Slate"),
+        ],
+        validators=[DataRequired()],
+    )
+    font_family = SelectField(
+        "Font family",
+        choices=[
+            ("classic_serif", "Classic serif"),
+            ("clean_sans", "Clean sans"),
+            ("humanist", "Humanist"),
+            ("technical", "Technical"),
+        ],
+        validators=[DataRequired()],
+    )
+    map_provider = SelectField(
+        "Homepage map provider",
+        choices=[
+            ("image", "Image map"),
+            ("google", "Google Maps"),
+            ("openstreetmap", "OpenStreetMap"),
+            ("opentopomap", "OpenTopoMap"),
+        ],
+        validators=[DataRequired()],
+    )
+    default_locale = SelectField(
+        "Default language",
+        choices=[
+            ("en", "English"),
+            ("it", "Italiano"),
+        ],
+        validators=[DataRequired()],
+    )
+    map_image = FileField(
+        "Map image",
+        validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    google_maps_center_lat = DecimalField(
+        "Google Maps center latitude",
+        places=6,
+        validators=[Optional(), NumberRange(min=-90, max=90)],
+    )
+    google_maps_center_lng = DecimalField(
+        "Google Maps center longitude",
+        places=6,
+        validators=[Optional(), NumberRange(min=-180, max=180)],
+    )
+    google_maps_zoom = IntegerField(
+        "Google Maps zoom",
+        validators=[Optional(), NumberRange(min=1, max=22)],
+        default=19,
+    )
+    submit = SubmitField("Save settings")
+
+
+class UserForm(FlaskForm):
+    username = StringField("Username", validators=[DataRequired(), Length(max=80)])
+    email = StringField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    password = PasswordField(
+        "Password",
+        validators=[Optional(), Length(min=8, message="Use at least 8 characters.")],
+    )
+    confirm_password = PasswordField(
+        "Confirm password",
+        validators=[Optional(), EqualTo("password", message="Passwords must match.")],
+    )
+    is_active = BooleanField("User active", default=True)
+    roles = SelectMultipleField("Roles", coerce=int, validators=[DataRequired()])
+    submit = SubmitField("Save user")
+
+    def __init__(self, *args, user: User | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.user = user
+
+    def validate(self, extra_validators=None) -> bool:
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        if self.user is None and not self.password.data:
+            self.password.errors.append("Password is required for new users.")
+            return False
+
+        existing_username = User.query.filter_by(username=self.username.data.strip()).first()
+        if existing_username and (self.user is None or existing_username.id != self.user.id):
+            self.username.errors.append("Username already in use.")
+            return False
+
+        existing_email = User.query.filter_by(email=self.email.data.strip()).first()
+        if existing_email and (self.user is None or existing_email.id != self.user.id):
+            self.email.errors.append("Email already in use.")
+            return False
+
+        return True
+
+
+class HomeAssistantSettingsForm(FlaskForm):
+    base_url = StringField("Base URL", validators=[Optional(), Length(max=255)])
+    internal_url = StringField("Internal URL", validators=[Optional(), Length(max=255)])
+    access_token = PasswordField(
+        "Long-lived access token",
+        validators=[Optional(), Length(max=255)],
+    )
+    user_agent = StringField("User-Agent", validators=[Optional(), Length(max=255)])
+    verify_ssl = BooleanField("Verify SSL certificates", default=True)
+    request_timeout = IntegerField(
+        "Request timeout (seconds)",
+        validators=[DataRequired(), NumberRange(min=1, max=120)],
+        default=10,
+    )
+    submit = SubmitField("Save Home Assistant settings")
+
+    def validate_base_url(self, field) -> None:
+        self._validate_url_field(field)
+
+    def validate_internal_url(self, field) -> None:
+        self._validate_url_field(field)
+
+    def validate(self, extra_validators=None) -> bool:
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        base_url = (self.base_url.data or "").strip()
+        internal_url = (self.internal_url.data or "").strip()
+        access_token = (self.access_token.data or "").strip()
+
+        if not (base_url or internal_url) and access_token:
+            message = "Provide a Base URL or an Internal URL together with the long-lived access token."
+            self.base_url.errors.append(message)
+            self.internal_url.errors.append(message)
+            self.access_token.errors.append(message)
+            return False
+
+        if (base_url or internal_url) and not access_token:
+            message = "A long-lived access token is required when a Home Assistant URL is configured."
+            self.access_token.errors.append(message)
+            return False
+
+        return True
+
+    @staticmethod
+    def _validate_url_field(field) -> None:
+        value = (field.data or "").strip()
+        if not value:
+            return
+
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValidationError("Use a full URL like http://homeassistant.local:8123 or https://example.com.")
+
+
+class ActionForm(FlaskForm):
+    submit = SubmitField("Submit")
+
+
+class ActivityTypeForm(FlaskForm):
+    name = StringField("Activity type name", validators=[DataRequired(), Length(max=120)])
+    description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    submit = SubmitField("Save activity type")
+
+
+class LinkTypeForm(FlaskForm):
+    description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    requires_label = BooleanField("Label required", default=False)
+    submit = SubmitField("Save link type")
+
+
+class NodeForm(FlaskForm):
+    title = StringField("Title", validators=[DataRequired(), Length(max=120)])
+    node_type = SelectField(
+        "Type",
+        choices=[
+            ("area", "Area"),
+            ("section", "Section"),
+            ("bed", "Bed"),
+            ("plant", "Plant"),
+            ("custom", "Custom"),
+        ],
+        validators=[DataRequired()],
+    )
+    summary = TextAreaField("Summary", validators=[Optional(), Length(max=1000)])
+    notes = TextAreaField("Notes", validators=[Optional(), Length(max=5000)])
+    quantity = IntegerField(
+        "Quantity",
+        validators=[Optional(), NumberRange(min=1, max=100000)],
+        default=1,
+    )
+    life_cycle = SelectField(
+        "Life cycle",
+        choices=[
+            ("", "Not set"),
+            ("annual", "Annual"),
+            ("perennial", "Perennial"),
+        ],
+        validators=[Optional()],
+    )
+    planting_date = DateField("Planting date", validators=[Optional()], format="%Y-%m-%d")
+    death_year = IntegerField(
+        "Death year",
+        validators=[Optional(), NumberRange(min=1900, max=2100)],
+    )
+    hero_image = FileField(
+        "Hero image",
+        validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    image_display_mode = SelectField(
+        "Image display mode",
+        choices=[
+            ("contain", "Show full image"),
+            ("cover", "Crop to fill"),
+        ],
+        validators=[DataRequired()],
+    )
+    image_focus_x = DecimalField(
+        "Crop focus X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+        default=50,
+    )
+    image_focus_y = DecimalField(
+        "Crop focus Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+        default=50,
+    )
+    map_x = DecimalField(
+        "Map X position (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    map_y = DecimalField(
+        "Map Y position (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    overlay_shape = SelectField(
+        "Overlay type",
+        choices=[
+            ("point", "Point"),
+            ("area", "Area"),
+        ],
+        validators=[DataRequired()],
+    )
+    overlay_width = DecimalField(
+        "Area width (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=1, max=100)],
+        default=18,
+    )
+    overlay_height = DecimalField(
+        "Area height (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=1, max=100)],
+        default=12,
+    )
+    geo_lat = DecimalField(
+        "Latitude",
+        places=6,
+        validators=[Optional(), NumberRange(min=-90, max=90)],
+    )
+    geo_lng = DecimalField(
+        "Longitude",
+        places=6,
+        validators=[Optional(), NumberRange(min=-180, max=180)],
+    )
+    hotspot_color = StringField(
+        "Hotspot color",
+        validators=[Optional(), Length(max=16)],
+        default="#2f6f4f",
+    )
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    is_published = BooleanField("Published", default=True)
+    submit = SubmitField("Save node")
+
+
+class PhotoForm(FlaskForm):
+    images = MultipleFileField(
+        "Images",
+        validators=[DataRequired(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    caption = TextAreaField("Shared caption", validators=[Optional(), Length(max=1000)])
+    submit = SubmitField("Upload photos")
+
+
+class PhotoEditForm(FlaskForm):
+    title = StringField("Photo title", validators=[DataRequired(), Length(max=120)])
+    caption = TextAreaField("Caption", validators=[Optional(), Length(max=1000)])
+    taken_at = DateField("Taken on", validators=[DataRequired()], format="%Y-%m-%d")
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    submit = SubmitField("Save photo")
+
+
+class NodeActivityForm(FlaskForm):
+    activity_type_id = SelectField("Activity type", coerce=int, validators=[DataRequired()])
+    happened_on = DateField("Date", validators=[DataRequired()], format="%Y-%m-%d")
+    description = TextAreaField("Description", validators=[DataRequired(), Length(max=4000)])
+    images = MultipleFileField(
+        "Images",
+        validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    submit = SubmitField("Save activity")
+
+
+class ExternalLinkForm(FlaskForm):
+    link_type_id = SelectField(
+        "Link type",
+        coerce=int,
+        validators=[DataRequired()],
+    )
+    label = StringField("Link label", validators=[Optional(), Length(max=120)])
+    url = StringField("URL", validators=[DataRequired(), URL(), Length(max=500)])
+    description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
+    submit = SubmitField("Add link")
+
+    def __init__(self, *args, link_types_by_id: dict[int, object] | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.link_types_by_id = link_types_by_id or {}
+
+    def validate(self, extra_validators=None) -> bool:
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        link_type = self.link_types_by_id.get(self.link_type_id.data)
+        if (
+            link_type is not None
+            and getattr(link_type, "requires_label", False)
+            and not (self.label.data or "").strip()
+        ):
+            self.label.errors.append("A label is required for this link type.")
+            return False
+
+        return True
+
+
+class HomeAssistantEntityForm(FlaskForm):
+    discovered_entity = SelectField(
+        "Discovered entity",
+        coerce=int,
+        validators=[DataRequired()],
+    )
+    label = StringField("Friendly name", validators=[Optional(), Length(max=120)])
+    show_on_image = BooleanField("Show on image", default=False)
+    map_x = DecimalField(
+        "Image X position (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    map_y = DecimalField(
+        "Image Y position (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    notes = TextAreaField("Notes", validators=[Optional(), Length(max=1000)])
+    submit = SubmitField("Add entity")
+
+
+class DeleteForm(FlaskForm):
+    submit = SubmitField("Delete")

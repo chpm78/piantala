@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <p class="eyebrow">Piantala</p>
+      <h1>Log in</h1>
+      <p>Sign in to manage your garden map, photos, links, and plant details.</p>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>Username</span>
+        {{ form.username(class_="input") }}
+        {% for error in form.username.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Password</span>
+        {{ form.password(class_="input") }}
+        {% for error in form.password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label class="inline-check">
+        {{ form.remember() }}
+        <span>Remember me</span>
+      </label>
+
+      {{ form.submit(class_="button") }}
+    </form>
+  </section>
+{% endblock %}
+

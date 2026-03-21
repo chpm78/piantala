@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ site_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    {% if load_leaflet %}
+      <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""
+      >
+    {% endif %}
+    {% block head_scripts %}{% endblock %}
+  </head>
+  <body class="theme-{{ app_theme }} font-{{ app_font }}">
+    <header class="site-header">
+      <div class="shell nav-row">
+        <a class="brand" href="{{ url_for('main.index') }}">{{ site_name }}</a>
+        {% if current_user.is_authenticated %}
+          <nav class="nav-links">
+            <a href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>
+            {% if current_user.has_permission('manage_content') or current_user.has_permission('manage_users') %}
+              <a href="{{ url_for('admin.index') }}">{{ tr("nav.admin") }}</a>
+            {% endif %}
+          </nav>
+          <div class="nav-user">
+            <div class="language-switcher">
+              <span>{{ tr("nav.language") }}</span>
+              {% for locale_code, _locale_label in available_locales %}
+                <a
+                  class="{% if current_locale == locale_code %}is-active{% endif %}"
+                  href="{{ url_for('main.set_locale', locale=locale_code) }}"
+                >
+                  {{ tr("locale." ~ locale_code) }}
+                </a>
+              {% endfor %}
+            </div>
+            <span>{{ current_user.username }}</span>
+            <form method="post" action="{{ url_for('auth.logout') }}">
+              <button type="submit" class="button button-secondary">{{ tr("nav.logout") }}</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    </header>
+
+    <main class="shell main-shell">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+              <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% if load_leaflet %}
+      <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+      ></script>
+    {% endif %}
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

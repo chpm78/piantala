@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.users") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <p class="eyebrow">{{ tr("admin.heading") }}</p>
+      <h1>{{ tr("user_form.edit") if user else tr("user_form.create") }}</h1>
+      <p>{{ tr("user_form.assign_roles") }}</p>
+    </div>
+
+    <form method="post" class="form-grid two-col">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("users.username") }}</span>
+        {{ form.username(class_="input") }}
+        {% for error in form.username.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("users.email") }}</span>
+        {{ form.email(class_="input") }}
+        {% for error in form.email.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("user_form.password_keep") if user else "Password" }}</span>
+        {{ form.password(class_="input") }}
+        {% for error in form.password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("user_form.confirm_password") }}</span>
+        {{ form.confirm_password(class_="input") }}
+        {% for error in form.confirm_password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label class="full-width">
+        <span>{{ tr("users.roles") }}</span>
+        {{ form.roles(class_="input multi-select", size=3) }}
+        {% for error in form.roles.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label class="inline-check">
+        {{ form.is_active() }}
+        <span>{{ tr("user_form.active") }}</span>
+      </label>
+
+      <div class="form-actions full-width">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.users') }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

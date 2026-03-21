@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.translations") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("translations.title") }}</h1>
+        <p>{{ tr("translations.description") }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <div class="table-wrap">
+        <table class="data-table translation-table">
+          <thead>
+            <tr>
+              <th>{{ tr("translations.key") }}</th>
+              <th>{{ tr("translations.english") }}</th>
+              <th>{{ tr("translations.italian") }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for key, values in translations_by_key.items() %}
+              <tr>
+                <td><code>{{ key }}</code></td>
+                <td>
+                  {% if values.get("en") %}
+                    <textarea class="input translation-input" name="translation-{{ values['en'].id }}">{{ values["en"].text }}</textarea>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if values.get("it") %}
+                    <textarea class="input translation-input" name="translation-{{ values['it'].id }}">{{ values["it"].text }}</textarea>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        {{ form.submit(class_="button", value=tr("translations.save")) }}
+      </div>
+    </form>
+  </section>
+{% endblock %}

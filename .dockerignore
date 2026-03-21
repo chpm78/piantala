@@ -1,0 +1,13 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+instance
+piantala/static/uploads
+.env
+dist
+build
+*.egg-info

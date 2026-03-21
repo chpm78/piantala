@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.activity_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("activity_types.title") }}</h1>
+        <p>{{ tr("activity_types.description") }}</p>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("activity_types.title") }}</p>
+            <h2>{{ tr("activity_types.create") }}</h2>
+          </div>
+        </div>
+
+        <form method="post" class="form-grid">
+          {{ form.hidden_tag() }}
+
+          <label>
+            <span>{{ tr("activity_types.name") }}</span>
+            {{ form.name(class_="input") }}
+          </label>
+
+          <label>
+            <span>{{ tr("activity_types.sort_order") }}</span>
+            {{ form.sort_order(class_="input") }}
+          </label>
+
+          <label class="full-width">
+            <span>{{ tr("node.description") }}</span>
+            {{ form.description(class_="input input-textarea") }}
+          </label>
+
+          <div>
+            {{ form.submit(class_="button", value=tr("common.save")) }}
+          </div>
+        </form>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("activity_types.title") }}</p>
+            <h2>{{ tr("node.activity_history") }}</h2>
+          </div>
+        </div>
+
+        {% if activity_types %}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ tr("activity_types.name") }}</th>
+                  <th>{{ tr("node.description") }}</th>
+                  <th>{{ tr("activity_types.sort_order") }}</th>
+                  <th>{{ tr("activity_types.used_count") }}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for activity_type in activity_types %}
+                  <tr>
+                    <td>{{ activity_type.name }}</td>
+                    <td>{{ activity_type.description or "-" }}</td>
+                    <td>{{ activity_type.sort_order }}</td>
+                    <td>{{ activity_type.activities|length }}</td>
+                    <td class="table-actions">
+                      <a class="text-link" href="{{ url_for('admin.edit_activity_type', activity_type_id=activity_type.id) }}">{{ tr("common.edit") }}</a>
+                      <form method="post" action="{{ url_for('admin.delete_activity_type', activity_type_id=activity_type.id) }}">
+                        {{ delete_form.hidden_tag() }}
+                        <button type="submit" class="button button-danger button-small" data-confirm="Delete this activity type?">{{ tr("common.delete") }}</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("activity_types.none") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

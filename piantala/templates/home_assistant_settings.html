@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.home_assistant") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("ha.title") }}</h1>
+        <p>{{ tr("ha.description") }}</p>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("ha.connection") }}</p>
+            <h2>{{ tr("ha.server_settings") }}</h2>
+          </div>
+        </div>
+
+        <form method="post" class="form-grid two-col">
+          {{ form.hidden_tag() }}
+
+          <label class="full-width">
+            <span>{{ tr("ha.base_url") }}</span>
+            {{ form.base_url(class_="input", placeholder="https://public-ha.example.com") }}
+            {% for error in form.base_url.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
+
+          <label class="full-width">
+            <span>{{ tr("ha.internal_url") }}</span>
+            {{ form.internal_url(class_="input", placeholder="http://homeassistant.local:8123") }}
+            {% for error in form.internal_url.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
+
+          <label class="full-width">
+            <span>{{ tr("ha.access_token") }}</span>
+            {{ form.access_token(class_="input", placeholder="Paste a Home Assistant long-lived access token") }}
+            {% for error in form.access_token.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
+
+          <label class="full-width">
+            <span>{{ tr("ha.user_agent") }}</span>
+            {{ form.user_agent(class_="input", placeholder="Browser-like User-Agent for reverse proxies or Cloudflare") }}
+            {% for error in form.user_agent.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
+
+          <label>
+            <span>{{ tr("ha.timeout") }}</span>
+            {{ form.request_timeout(class_="input") }}
+            {% for error in form.request_timeout.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
+
+          <label class="inline-check">
+            {{ form.verify_ssl() }}
+            <span>{{ tr("ha.verify_ssl") }}</span>
+          </label>
+
+          <div class="form-actions full-width">
+            {{ form.submit(class_="button", value=tr("common.save")) }}
+          </div>
+        </form>
+
+        <p class="hint">
+          This integration uses Home Assistant base URL plus a long-lived access token. That matches the supported server-to-server pattern for the REST API.
+        </p>
+        <p class="hint">
+          If your Home Assistant URL is behind Cloudflare or another reverse proxy, prefer an internal URL such as `http://homeassistant.local:8123` when Piantala runs on the same network.
+        </p>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("ha.status") }}</p>
+            <h2>{{ tr("ha.discovery") }}</h2>
+          </div>
+        </div>
+
+        <div class="stack-list">
+          <div class="list-item vertical">
+            <div class="list-copy">
+              <strong>{{ tr("ha.configured") }}</strong>
+              <p>{{ tr("node.yes") if ha_settings.is_configured else tr("node.no") }}</p>
+            </div>
+          </div>
+          <div class="list-item vertical">
+            <div class="list-copy">
+              <strong>{{ tr("ha.effective_url") }}</strong>
+              <p>{{ ha_settings.effective_url or tr("ha.not_set") }}</p>
+            </div>
+          </div>
+          <div class="list-item vertical">
+            <div class="list-copy">
+              <strong>{{ tr("ha.cached_entities") }}</strong>
+              <p>{{ entity_count }}</p>
+            </div>
+          </div>
+          <div class="list-item vertical">
+            <div class="list-copy">
+              <strong>{{ tr("ha.last_sync") }}</strong>
+              <p>{{ ha_settings.last_sync_at or tr("ha.never") }}</p>
+            </div>
+          </div>
+          {% if ha_settings.last_error %}
+            <div class="list-item vertical">
+              <div class="list-copy">
+                <strong>{{ tr("ha.last_error") }}</strong>
+                <p>{{ ha_settings.last_error }}</p>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="hero-actions">
+          <form method="post" action="{{ url_for('admin.home_assistant_test') }}">
+            {{ test_form.hidden_tag() }}
+            {{ test_form.submit(class_="button button-secondary", value=tr("ha.test")) }}
+          </form>
+          <form method="post" action="{{ url_for('admin.home_assistant_sync') }}">
+            {{ sync_form.hidden_tag() }}
+            {{ sync_form.submit(class_="button", value=tr("ha.sync")) }}
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}

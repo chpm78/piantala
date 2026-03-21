@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.link_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("link_types.title") }}</h1>
+        <p>{{ tr("link_types.description") }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      {% for locale, locale_label in supported_locales %}
+        <label>
+          <span>{{ tr("link_types.name_for_language") }} ({{ tr("locale." ~ locale, locale_label) }})</span>
+          <input class="input" type="text" name="name_{{ locale }}" maxlength="120" value="{{ link_type_names.get(locale, '') }}" required>
+          {% if link_type_name_errors.get(locale) %}
+            <small class="field-error">{{ link_type_name_errors.get(locale) }}</small>
+          {% endif %}
+        </label>
+      {% endfor %}
+
+      <label>
+        <span>{{ tr("link_types.sort_order") }}</span>
+        {{ form.sort_order(class_="input") }}
+      </label>
+
+      <label class="full-width inline-check">
+        {{ form.requires_label() }}
+        <span>{{ tr("link_types.label_required") }}</span>
+      </label>
+      <small class="hint full-width">{{ tr("link_types.label_required_help") }}</small>
+
+      <label class="full-width">
+        <span>{{ tr("node.description") }}</span>
+        {{ form.description(class_="input input-textarea") }}
+      </label>
+
+      <div class="form-actions">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.link_types') }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

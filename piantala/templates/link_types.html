@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.link_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("link_types.title") }}</h1>
+        <p>{{ tr("link_types.description") }}</p>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("link_types.title") }}</p>
+            <h2>{{ tr("link_types.create") }}</h2>
+          </div>
+        </div>
+
+        <form method="post" class="form-grid">
+          {{ form.hidden_tag() }}
+
+          {% for locale, locale_label in supported_locales %}
+            <label>
+              <span>{{ tr("link_types.name_for_language") }} ({{ tr("locale." ~ locale, locale_label) }})</span>
+              <input class="input" type="text" name="name_{{ locale }}" maxlength="120" value="{{ link_type_names.get(locale, '') }}" required>
+              {% if link_type_name_errors.get(locale) %}
+                <small class="field-error">{{ link_type_name_errors.get(locale) }}</small>
+              {% endif %}
+            </label>
+          {% endfor %}
+
+          <label>
+            <span>{{ tr("link_types.sort_order") }}</span>
+            {{ form.sort_order(class_="input") }}
+          </label>
+
+          <label class="full-width inline-check">
+            {{ form.requires_label() }}
+            <span>{{ tr("link_types.label_required") }}</span>
+          </label>
+          <small class="hint full-width">{{ tr("link_types.label_required_help") }}</small>
+
+          <label class="full-width">
+            <span>{{ tr("node.description") }}</span>
+            {{ form.description(class_="input input-textarea") }}
+          </label>
+
+          <div>
+            {{ form.submit(class_="button", value=tr("common.save")) }}
+          </div>
+        </form>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("link_types.title") }}</p>
+            <h2>{{ tr("node.external_links") }}</h2>
+          </div>
+        </div>
+
+        {% if link_types %}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  {% for locale, locale_label in supported_locales %}
+                    <th>{{ tr("locale." ~ locale, locale_label) }}</th>
+                  {% endfor %}
+                  <th>{{ tr("node.description") }}</th>
+                  <th>{{ tr("link_types.label_required") }}</th>
+                  <th>{{ tr("link_types.sort_order") }}</th>
+                  <th>{{ tr("link_types.used_count") }}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for link_type in link_types %}
+                  <tr>
+                    {% for locale, locale_label in supported_locales %}
+                      <td>{{ link_type.localized_name(locale) }}</td>
+                    {% endfor %}
+                    <td>{{ link_type.description or "-" }}</td>
+                    <td>{{ tr("node.yes") if link_type.requires_label else tr("node.no") }}</td>
+                    <td>{{ link_type.sort_order }}</td>
+                    <td>{{ link_type.links|length }}</td>
+                    <td class="table-actions">
+                      <a class="text-link" href="{{ url_for('admin.edit_link_type', link_type_id=link_type.id) }}">{{ tr("common.edit") }}</a>
+                      <form method="post" action="{{ url_for('admin.delete_link_type', link_type_id=link_type.id) }}">
+                        {{ delete_form.hidden_tag() }}
+                        <button type="submit" class="button button-danger button-small" data-confirm="Delete this link type?">{{ tr("common.delete") }}</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("link_types.none") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}
