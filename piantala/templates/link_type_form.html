@@ -37,6 +37,12 @@
       </label>
       <small class="hint full-width">{{ tr("link_types.label_required_help") }}</small>
 
+      <label class="full-width inline-check">
+        {{ form.requires_url() }}
+        <span>{{ tr("link_types.url_required") }}</span>
+      </label>
+      <small class="hint full-width">{{ tr("link_types.url_required_help") }}</small>
+
       <label class="full-width">
         <span>{{ tr("node.description") }}</span>
         {{ form.description(class_="input input-textarea") }}

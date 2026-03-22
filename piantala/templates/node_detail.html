@@ -21,13 +21,16 @@
         {% if node.summary %}
           <p>{{ node.summary }}</p>
         {% endif %}
-        {% if (node.quantity and node.quantity != 1) or node.life_cycle or node.planting_date or node.death_year %}
+        {% if (node.quantity and node.quantity != 1) or node.life_cycle or node.effective_cultivation_year or node.planting_date or node.death_year %}
           <div class="detail-meta">
             {% if node.quantity and node.quantity != 1 %}
               <span class="status-pill">{{ tr("node.quantity_short") }}: {{ node.quantity }}</span>
             {% endif %}
             {% if node.life_cycle %}
               <span class="status-pill">{{ tr("node.lifecycle_details") }}: {{ tr("node." ~ node.life_cycle) }}</span>
+            {% endif %}
+            {% if node.effective_cultivation_year %}
+              <span class="status-pill">{{ tr("node.cultivation_year") }}: {{ node.effective_cultivation_year }}</span>
             {% endif %}
             {% if node.planting_date %}
               <span class="status-pill">{{ tr("node.planting_date") }}: {{ node.planting_date.strftime("%d/%m/%Y") }}</span>
@@ -49,6 +52,36 @@
         </div>
       {% endif %}
     </div>
+
+    {% if available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3] %}
+      <section class="panel">
+        <form method="get" class="inline-toggle">
+          {% if selected_photo %}
+            <input type="hidden" name="photo" value="{{ selected_photo.id }}">
+          {% endif %}
+          {% if selected_source_section_id %}
+            <input type="hidden" name="clone_section_id" value="{{ selected_source_section_id }}">
+          {% endif %}
+          {% if clone_year_range %}
+            <input type="hidden" name="clone_year_range" value="{{ clone_year_range }}">
+          {% endif %}
+          {% if available_cultivation_years %}
+            <label>
+              <span>{{ tr("node.cultivation_year_view") }}</span>
+              <select name="year" class="input" onchange="this.form.submit()">
+                {% for year_value in available_cultivation_years %}
+                  <option value="{{ year_value }}" {% if selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
+          <label class="inline-check">
+            <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} onchange="this.form.submit()">
+            <span>{{ tr("node.show_dead_plants") }}</span>
+          </label>
+        </form>
+      </section>
+    {% endif %}
 
     {% if current_image_path %}
       <div class="inline-map-help">
@@ -97,18 +130,20 @@
                   {% endif %}
                 </a>
               {% else %}
-                <a
-                  class="image-hotspot image-hotspot-point image-hotspot-node-{{ child.node_type or 'custom' }}{% if child.marker_icon_class %} image-hotspot-has-icon{% endif %}"
-                  href="{{ url_for('main.node_detail', node_id=child.id) }}"
-                  style="left: {{ child.map_x }}%; top: {{ child.map_y }}%; --hotspot-color: {{ child.marker_color_value }};"
-                  title="{{ child.title }}"
-                  data-title="{{ child.title }}"
-                  aria-label="{{ child.title }}"
-                >
-                  {% if child.marker_icon_class %}
-                    <span class="image-hotspot-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
-                  {% endif %}
-                </a>
+                {% for point_x, point_y in child.point_positions %}
+                  <a
+                    class="image-hotspot image-hotspot-point image-hotspot-node-{{ child.node_type or 'custom' }}{% if child.marker_icon_class %} image-hotspot-has-icon{% endif %}"
+                    href="{{ url_for('main.node_detail', node_id=child.id) }}"
+                    style="left: {{ point_x }}%; top: {{ point_y }}%; --hotspot-color: {{ child.marker_color_value }};"
+                    title="{{ child.title }}"
+                    data-title="{{ child.title }}"
+                    aria-label="{{ child.title }}"
+                  >
+                    {% if child.marker_icon_class %}
+                      <span class="image-hotspot-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
+                    {% endif %}
+                  </a>
+                {% endfor %}
               {% endif %}
             {% endfor %}
             {% for entity in image_entities %}
@@ -165,16 +200,6 @@
       <p>{{ tr("node.children_help") }}</p>
     </div>
 
-    <form method="get" class="inline-toggle">
-      {% if selected_photo %}
-        <input type="hidden" name="photo" value="{{ selected_photo.id }}">
-      {% endif %}
-      <label class="inline-check">
-        <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} onchange="this.form.submit()">
-        <span>{{ tr("node.show_dead_plants") }}</span>
-      </label>
-    </form>
-
     {% if visible_children %}
       <div class="card-grid">
         {% for child in visible_children %}
@@ -193,13 +218,16 @@
               </h3>
               {% set item = child %}
               {% include "_audit_meta.html" %}
-              {% if (child.quantity and child.quantity != 1) or child.life_cycle or child.planting_date or child.death_year %}
+              {% if (child.quantity and child.quantity != 1) or child.life_cycle or child.effective_cultivation_year or child.planting_date or child.death_year %}
                 <div class="card-meta">
                   {% if child.quantity and child.quantity != 1 %}
                     <span class="status-pill">{{ tr("node.quantity_short") }}: {{ child.quantity }}</span>
                   {% endif %}
               {% if child.life_cycle %}
                     <span class="status-pill">{{ tr("node." ~ child.life_cycle) }}</span>
+                  {% endif %}
+                  {% if child.effective_cultivation_year %}
+                    <span class="status-pill">{{ child.effective_cultivation_year }}</span>
                   {% endif %}
                   {% if child.planting_date %}
                     <span class="status-pill">{{ child.planting_date.strftime("%d/%m/%Y") }}</span>
@@ -225,6 +253,96 @@
     {% endif %}
   </section>
 
+  {% if cultivation_history %}
+    <section class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.cultivation_history") }}</h2>
+        <p>{{ tr("node.cultivation_history_text") }}</p>
+      </div>
+      <div class="stack-list">
+        {% for history_node in cultivation_history %}
+          <div class="list-item vertical">
+            <div class="list-copy">
+              <strong><a class="text-link" href="{{ url_for('main.node_detail', node_id=history_node.id) }}">{{ history_node.title }}</a></strong>
+              <p>{{ tr("node.cultivation_year") }}: {{ history_node.effective_cultivation_year or "-" }}</p>
+              <p>{{ tr("node.location") }}: {{ history_node.top_level_ancestor.title }} / {{ history_node.parent.title if history_node.parent else history_node.title }}</p>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if current_user.has_permission('manage_content') and node.level in [2, 3] %}
+    <section class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.clone_cultivations") }}</h2>
+        <p>{{ tr("node.clone_cultivations_text") }}</p>
+      </div>
+
+      <form method="get" class="form-grid">
+        {% if selected_photo %}
+          <input type="hidden" name="photo" value="{{ selected_photo.id }}">
+        {% endif %}
+        {% if selected_year %}
+          <input type="hidden" name="year" value="{{ selected_year }}">
+        {% endif %}
+        {% if show_dead_children %}
+          <input type="hidden" name="show_dead" value="1">
+        {% endif %}
+        <label>
+          <span>{{ tr("node.source_section") }}</span>
+          <select name="clone_section_id" class="input">
+            <option value="">{{ tr("node.all_sections") }}</option>
+            {% for section in source_sections %}
+              <option value="{{ section.id }}" {% if selected_source_section_id == section.id %}selected{% endif %}>{{ section.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>{{ tr("node.past_year_range") }}</span>
+          <select name="clone_year_range" class="input">
+            {% for range_value in [1, 2, 3, 5, 10] %}
+              <option value="{{ range_value }}" {% if clone_year_range == range_value %}selected{% endif %}>{{ range_value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="form-actions full-width">
+          <button type="submit" class="button button-secondary">{{ tr("common.open") }}</button>
+        </div>
+      </form>
+
+      {% if clone_candidates %}
+        <form method="post" action="{{ url_for('main.clone_cultivations', node_id=node.id) }}" class="form-grid">
+          {{ delete_form.csrf_token }}
+          <input type="hidden" name="source_section_id" value="{{ selected_source_section_id or '' }}">
+          <input type="hidden" name="year_range" value="{{ clone_year_range }}">
+          <label>
+            <span>{{ tr("node.target_year") }}</span>
+            <input class="input" type="number" name="target_year" min="1900" max="2100" value="{{ current_year }}">
+          </label>
+          <div class="full-width stack-list">
+            {% for candidate in clone_candidates %}
+              <label class="list-item">
+                <input type="checkbox" name="candidate_ids" value="{{ candidate.id }}">
+                <div class="list-copy">
+                  <strong>{{ candidate.title }}</strong>
+                  <p>{{ tr("node.cultivation_year") }}: {{ candidate.effective_cultivation_year or "-" }}</p>
+                  <p>{{ tr("node.location") }}: {{ candidate.section_ancestor.title }} / {{ candidate.parent.title if candidate.parent else candidate.title }}</p>
+                </div>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="form-actions full-width">
+            <button type="submit" class="button">{{ tr("node.clone_selected") }}</button>
+          </div>
+        </form>
+      {% else %}
+        <p class="muted">{{ tr("node.no_clone_candidates") }}</p>
+      {% endif %}
+    </section>
+  {% endif %}
+
   <section class="three-col-grid">
     <article class="panel">
       <div class="panel-header">
@@ -241,6 +359,9 @@
               </a>
               <div class="list-copy">
                 <strong>{{ photo.title }}</strong>
+                {% if photo.is_default %}
+                  <p><span class="status-pill">{{ tr("node.default_photo") }}</span></p>
+                {% endif %}
                 {% set item = photo %}
                 {% include "_audit_meta.html" %}
                 <p>{{ tr("node.taken_on") }}: {{ photo.taken_at.strftime("%d %b %Y") }}</p>
@@ -296,6 +417,9 @@
                 {% set item = activity %}
                 {% include "_audit_meta.html" %}
                 <p>{{ tr("node.activity_date") }}: {{ activity.happened_on.strftime("%d/%m/%Y") }}</p>
+                {% if activity.quantity_kg is not none %}
+                  <p>{{ tr("node.quantity_kg") }}: {{ "%.2f"|format(activity.quantity_kg) }} kg</p>
+                {% endif %}
                 <p>{{ activity.description }}</p>
                 {% if activity.images %}
                   <div class="activity-image-grid">
@@ -334,6 +458,13 @@
             <span>{{ tr("node.activity_date") }}</span>
             {{ activity_form.happened_on(class_="input") }}
           </label>
+          <label>
+            <span>{{ tr("node.quantity_kg") }}</span>
+            {{ activity_form.quantity_kg(class_="input") }}
+            {% for error in activity_form.quantity_kg.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
           <label class="full-width">
             <span>{{ tr("node.description") }}</span>
             {{ activity_form.description(class_="input input-textarea") }}
@@ -359,13 +490,21 @@
           {% for link in node.external_links %}
             <div class="list-item vertical">
               <div class="list-copy">
-                <strong><a class="text-link" href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.display_label(current_locale) }}</a></strong>
+                <strong>
+                  {% if link.url %}
+                    <a class="text-link" href="{{ link.url }}" target="_blank" rel="noreferrer">{{ link.display_label(current_locale) }}</a>
+                  {% else %}
+                    {{ link.display_label(current_locale) }}
+                  {% endif %}
+                </strong>
                 {% set item = link %}
                 {% include "_audit_meta.html" %}
                 {% if link.link_type %}
                   <p><span class="status-pill">{{ link.link_type.localized_name(current_locale) }}</span></p>
                 {% endif %}
-                <p>{{ link.description or link.url }}</p>
+                {% if link.description or link.url %}
+                  <p>{{ link.description or link.url }}</p>
+                {% endif %}
               </div>
               {% if current_user.has_permission('manage_content') %}
                 <div class="stack-actions">

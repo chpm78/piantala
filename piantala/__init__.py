@@ -56,16 +56,19 @@ def create_app() -> Flask:
 
     @app.cli.command("create-admin")
     @click.option("--username", prompt=True)
-    @click.option("--email", prompt=True)
+    @click.option("--email", default="", help="Optional email address.")
     @click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
     def create_admin_command(username: str, email: str, password: str) -> None:
         db.create_all()
         sync_schema()
         ensure_seed_data()
 
-        existing_user = User.query.filter(
-            (User.username == username) | (User.email == email)
-        ).first()
+        username = username.strip()
+        email = email.strip().lower()
+
+        existing_user = User.query.filter(User.username == username).first()
+        if not existing_user and email:
+            existing_user = User.query.filter(User.email == email).first()
         if existing_user:
             raise click.ClickException("A user with that username or email already exists.")
 
@@ -73,7 +76,7 @@ def create_app() -> Flask:
         if admin_role is None:
             raise click.ClickException("Admin role missing. Run `flask --app app init-db` first.")
 
-        user = User(username=username, email=email, is_active=True)
+        user = User(username=username, email=email or None, is_active=True)
         user.set_password(password)
         user.roles.append(admin_role)
         db.session.add(user)

@@ -32,7 +32,7 @@
           {% for user in users %}
             <tr>
               <td>{{ user.username }}</td>
-              <td>{{ user.email }}</td>
+              <td>{{ user.email or '' }}</td>
               <td>{{ tr("locale." ~ user.preferred_locale, user.preferred_locale) }}</td>
               <td>{{ ", ".join(user.role_names()) }}</td>
               <td>{{ tr("users.active") if user.is_active else tr("users.disabled") }}</td>

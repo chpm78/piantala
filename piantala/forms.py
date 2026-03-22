@@ -8,6 +8,7 @@ from wtforms import (
     BooleanField,
     DateField,
     DecimalField,
+    HiddenField,
     IntegerField,
     PasswordField,
     SelectField,
@@ -89,7 +90,7 @@ class MapSettingsForm(FlaskForm):
 
 class UserForm(FlaskForm):
     username = StringField("Username", validators=[DataRequired(), Length(max=80)])
-    email = StringField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    email = StringField("Email", validators=[Optional(), Email(), Length(max=255)])
     preferred_locale = SelectField(
         "Language",
         choices=SUPPORTED_LOCALES,
@@ -119,15 +120,20 @@ class UserForm(FlaskForm):
             self.password.errors.append("Password is required for new users.")
             return False
 
-        existing_username = User.query.filter_by(username=self.username.data.strip()).first()
+        self.username.data = self.username.data.strip()
+        email_value = (self.email.data or "").strip().lower()
+        self.email.data = email_value
+
+        existing_username = User.query.filter_by(username=self.username.data).first()
         if existing_username and (self.user is None or existing_username.id != self.user.id):
             self.username.errors.append("Username already in use.")
             return False
 
-        existing_email = User.query.filter_by(email=self.email.data.strip()).first()
-        if existing_email and (self.user is None or existing_email.id != self.user.id):
-            self.email.errors.append("Email already in use.")
-            return False
+        if email_value:
+            existing_email = User.query.filter_by(email=email_value).first()
+            if existing_email and (self.user is None or existing_email.id != self.user.id):
+                self.email.errors.append("Email already in use.")
+                return False
 
         return True
 
@@ -203,6 +209,7 @@ class ProfileLanguageForm(FlaskForm):
 class ActivityTypeForm(FlaskForm):
     name = StringField("Activity type name", validators=[DataRequired(), Length(max=120)])
     description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
+    tracks_quantity_kg = BooleanField("Track quantity in kg", default=False)
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
     submit = SubmitField("Save activity type")
 
@@ -211,6 +218,7 @@ class LinkTypeForm(FlaskForm):
     description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
     requires_label = BooleanField("Label required", default=False)
+    requires_url = BooleanField("URL required", default=True)
     submit = SubmitField("Save link type")
 
 
@@ -249,6 +257,10 @@ class NodeForm(FlaskForm):
             ("perennial", "Perennial"),
         ],
         validators=[Optional()],
+    )
+    cultivation_year = IntegerField(
+        "Cultivation year",
+        validators=[Optional(), NumberRange(min=1900, max=2100)],
     )
     planting_date = DateField("Planting date", validators=[Optional()], format="%Y-%m-%d")
     death_year = IntegerField(
@@ -309,6 +321,7 @@ class NodeForm(FlaskForm):
         validators=[Optional(), NumberRange(min=1, max=100)],
         default=12,
     )
+    additional_positions_json = HiddenField("Additional positions")
     area_corner_1_x = DecimalField(
         "Area corner 1 X (%)",
         places=2,
@@ -372,6 +385,32 @@ class NodeForm(FlaskForm):
     is_published = BooleanField("Published", default=True)
     submit = SubmitField("Save node")
 
+    def validate(self, extra_validators=None) -> bool:
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        if self.life_cycle.data == "annual" and self.node_type.data != "section":
+            if self.cultivation_year.data is None and self.planting_date.data is None:
+                self.cultivation_year.errors.append(
+                    "Annual cultivations need a cultivation year or planting date."
+                )
+                return False
+
+            if self.cultivation_year.data is None and self.planting_date.data is not None:
+                self.cultivation_year.data = self.planting_date.data.year
+
+            if (
+                self.cultivation_year.data is not None
+                and self.planting_date.data is not None
+                and self.cultivation_year.data < self.planting_date.data.year
+            ):
+                self.cultivation_year.errors.append(
+                    "Cultivation year cannot be earlier than the planting year."
+                )
+                return False
+
+        return True
+
 
 class PhotoForm(FlaskForm):
     images = MultipleFileField(
@@ -386,6 +425,7 @@ class PhotoEditForm(FlaskForm):
     title = StringField("Photo title", validators=[DataRequired(), Length(max=120)])
     caption = TextAreaField("Caption", validators=[Optional(), Length(max=1000)])
     taken_at = DateField("Taken on", validators=[DataRequired()], format="%Y-%m-%d")
+    is_default = BooleanField("Use as default image", default=False)
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
     submit = SubmitField("Save photo")
 
@@ -393,12 +433,36 @@ class PhotoEditForm(FlaskForm):
 class NodeActivityForm(FlaskForm):
     activity_type_id = SelectField("Activity type", coerce=int, validators=[DataRequired()])
     happened_on = DateField("Date", validators=[DataRequired()], format="%Y-%m-%d")
+    quantity_kg = DecimalField(
+        "Quantity (kg)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=1000000)],
+    )
     description = TextAreaField("Description", validators=[DataRequired(), Length(max=4000)])
     images = MultipleFileField(
         "Images",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
     )
     submit = SubmitField("Save activity")
+
+    def __init__(self, *args, activity_types_by_id: dict[int, object] | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.activity_types_by_id = activity_types_by_id or {}
+
+    def validate(self, extra_validators=None) -> bool:
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        activity_type = self.activity_types_by_id.get(self.activity_type_id.data)
+        if (
+            activity_type is not None
+            and getattr(activity_type, "tracks_quantity_kg", False)
+            and self.quantity_kg.data is None
+        ):
+            self.quantity_kg.errors.append("Quantity in kg is required for this activity type.")
+            return False
+
+        return True
 
 
 class ExternalLinkForm(FlaskForm):
@@ -408,7 +472,7 @@ class ExternalLinkForm(FlaskForm):
         validators=[DataRequired()],
     )
     label = StringField("Link label", validators=[Optional(), Length(max=120)])
-    url = StringField("URL", validators=[DataRequired(), URL(), Length(max=500)])
+    url = StringField("URL", validators=[Optional(), Length(max=500)])
     description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
     submit = SubmitField("Add link")
 
@@ -428,6 +492,19 @@ class ExternalLinkForm(FlaskForm):
         ):
             self.label.errors.append("A label is required for this link type.")
             return False
+
+        url_value = (self.url.data or "").strip()
+        if link_type is not None and getattr(link_type, "requires_url", True) and not url_value:
+            self.url.errors.append("A URL is required for this link type.")
+            return False
+
+        if url_value:
+            validator = URL(message="Enter a valid URL.")
+            try:
+                validator(self, self.url)
+            except ValidationError as exc:
+                self.url.errors.append(str(exc))
+                return False
 
         return True
 

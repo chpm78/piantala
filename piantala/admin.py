@@ -109,9 +109,10 @@ def create_user():
     form.roles.choices = [(role.id, role.name) for role in roles]
 
     if form.validate_on_submit():
+        email_value = form.email.data or None
         user = User(
-            username=form.username.data.strip(),
-            email=form.email.data.strip().lower(),
+            username=form.username.data,
+            email=email_value,
             preferred_locale=form.preferred_locale.data,
             is_active=form.is_active.data,
         )
@@ -154,7 +155,7 @@ def edit_user(user_id: int):
             )
 
         user.username = form.username.data.strip()
-        user.email = form.email.data.strip().lower()
+        user.email = form.email.data or None
         user.preferred_locale = form.preferred_locale.data
         user.is_active = form.is_active.data
         user.roles = selected_roles
@@ -302,6 +303,7 @@ def activity_types():
                 ActivityType(
                     name=form.name.data.strip(),
                     description=form.description.data.strip() if form.description.data else None,
+                    tracks_quantity_kg=form.tracks_quantity_kg.data,
                     sort_order=form.sort_order.data or 0,
                 )
             )
@@ -335,6 +337,7 @@ def edit_activity_type(activity_type_id: int):
         else:
             activity_type.name = form.name.data.strip()
             activity_type.description = form.description.data.strip() if form.description.data else None
+            activity_type.tracks_quantity_kg = form.tracks_quantity_kg.data
             activity_type.sort_order = form.sort_order.data or 0
             db.session.commit()
             flash("Activity type updated.", "success")
@@ -467,6 +470,7 @@ def link_types():
                     description=form.description.data.strip() if form.description.data else None,
                     sort_order=form.sort_order.data or 0,
                     requires_label=form.requires_label.data,
+                    requires_url=form.requires_url.data,
                 )
                 db.session.add(link_type)
                 db.session.flush()
@@ -511,6 +515,7 @@ def edit_link_type(link_type_id: int):
                 link_type.description = form.description.data.strip() if form.description.data else None
                 link_type.sort_order = form.sort_order.data or 0
                 link_type.requires_label = form.requires_label.data
+                link_type.requires_url = form.requires_url.data
                 db.session.flush()
                 link_type.save_localized_names(link_type_names)
                 db.session.commit()

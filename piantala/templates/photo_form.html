@@ -43,6 +43,11 @@
         {% endfor %}
       </label>
 
+      <label class="inline-check full-width">
+        {{ form.is_default() }}
+        <span>{{ tr("node.default_photo") }}</span>
+      </label>
+
       <label class="full-width">
         <span>Caption</span>
         {{ form.caption(class_="input input-textarea") }}

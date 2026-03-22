@@ -50,9 +50,20 @@
         {{ form.life_cycle(class_="input") }}
       </label>
 
+      <label data-section-hidden-field="true" data-annual-only-field="true">
+        <span>{{ tr("node.cultivation_year") }}</span>
+        {{ form.cultivation_year(class_="input", id="cultivation_year") }}
+        {% for error in form.cultivation_year.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
       <label data-section-hidden-field="true">
         <span>{{ tr("node.planting_date") }}</span>
-        {{ form.planting_date(class_="input") }}
+        {{ form.planting_date(class_="input", id="planting_date") }}
+        {% for error in form.planting_date.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
       </label>
 
       <label data-section-hidden-field="true">
@@ -122,6 +133,7 @@
 
       {% if parent %}
         <div hidden class="full-width">
+          {{ form.additional_positions_json(id="additional_positions_json") }}
           <input type="hidden" name="{{ form.overlay_width.name }}" id="overlay_width" value="{{ form.overlay_width.data if form.overlay_width.data is not none else 18 }}">
           <input type="hidden" name="{{ form.overlay_height.name }}" id="overlay_height" value="{{ form.overlay_height.data if form.overlay_height.data is not none else 12 }}">
           <input type="hidden" name="{{ form.area_corner_1_x.name }}" id="area_corner_1_x" value="{{ form.area_corner_1_x.data if form.area_corner_1_x.data is not none else '' }}">
@@ -256,6 +268,7 @@
           data-shape-input="overlay_shape"
           data-x-input="map_x"
           data-y-input="map_y"
+          data-positions-input="additional_positions_json"
           data-width-input="overlay_width"
           data-height-input="overlay_height"
           data-feedback-target="image-picker-feedback"
@@ -284,18 +297,20 @@
                   {% endif %}
                 </a>
               {% else %}
-                <a
-                  class="image-hotspot image-hotspot-static image-hotspot-point image-hotspot-node-{{ sibling.node_type or 'custom' }}{% if sibling.marker_icon_class %} image-hotspot-has-icon{% endif %}"
-                  href="{{ url_for('main.node_detail', node_id=sibling.id) }}"
-                  style="left: {{ sibling.map_x }}%; top: {{ sibling.map_y }}%; --hotspot-color: {{ sibling.marker_color_value }};"
-                  title="{{ sibling.title }}"
-                  data-title="{{ sibling.title }}"
-                  aria-label="{{ sibling.title }}"
-                >
-                  {% if sibling.marker_icon_class %}
-                    <span class="image-hotspot-icon mdi {{ sibling.marker_icon_class }}" aria-hidden="true"></span>
-                  {% endif %}
-                </a>
+                {% for point_x, point_y in sibling.point_positions %}
+                  <a
+                    class="image-hotspot image-hotspot-static image-hotspot-point image-hotspot-node-{{ sibling.node_type or 'custom' }}{% if sibling.marker_icon_class %} image-hotspot-has-icon{% endif %}"
+                    href="{{ url_for('main.node_detail', node_id=sibling.id) }}"
+                    style="left: {{ point_x }}%; top: {{ point_y }}%; --hotspot-color: {{ sibling.marker_color_value }};"
+                    title="{{ sibling.title }}"
+                    data-title="{{ sibling.title }}"
+                    aria-label="{{ sibling.title }}"
+                  >
+                    {% if sibling.marker_icon_class %}
+                      <span class="image-hotspot-icon mdi {{ sibling.marker_icon_class }}" aria-hidden="true"></span>
+                    {% endif %}
+                  </a>
+                {% endfor %}
               {% endif %}
             {% endfor %}
             <div class="overlay-editor-layer" data-overlay-editor-layer>
@@ -311,16 +326,14 @@
                 ></button>
               {% endfor %}
             </div>
-            <div
-              class="image-hotspot image-hotspot-static image-hotspot-point image-hotspot-node-{{ form.node_type.data or 'custom' }}{% if form.marker_icon.data %} image-hotspot-has-icon{% endif %}"
-              id="node-position-preview"
-              hidden
-            >
-              <span class="image-hotspot-icon mdi{% if form.marker_icon.data %} {{ form.marker_icon.data if form.marker_icon.data.startswith('mdi-') else 'mdi-' ~ form.marker_icon.data }}{% endif %}" id="node-position-preview-icon" {% if not form.marker_icon.data %}hidden{% endif %} aria-hidden="true"></span>
-            </div>
+            <div class="point-positions-layer" data-point-positions-layer></div>
           </div>
         </div>
         <p id="image-picker-feedback" class="hint">{{ tr("node.overlay_editor_help") }}</p>
+        <div class="point-positions-panel" data-point-positions-panel data-remove-label="{{ tr('common.delete') }}">
+          <strong>{{ tr("node.point_positions") }}</strong>
+          <div class="point-positions-list" data-point-positions-list></div>
+        </div>
       </div>
     {% endif %}
   </section>

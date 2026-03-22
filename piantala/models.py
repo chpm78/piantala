@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, UTC
 
 from flask import has_request_context
@@ -89,7 +90,7 @@ class User(UserMixin, AuditMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(255), unique=True, nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=True)
     preferred_locale = db.Column(db.String(8), nullable=False, default=DEFAULT_LOCALE)
     password_hash = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
@@ -182,12 +183,10 @@ class MarkerColor(AuditMixin, db.Model):
 
 class GardenNode(AuditMixin, db.Model):
     __tablename__ = "garden_nodes"
-    __table_args__ = (
-        UniqueConstraint("parent_id", "title", name="uq_node_parent_title"),
-    )
 
     id = db.Column(db.Integer, primary_key=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=True)
+    cloned_from_node_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=True)
     level = db.Column(db.Integer, nullable=False)
     node_type = db.Column(db.String(32), nullable=False)
     title = db.Column(db.String(120), nullable=False)
@@ -195,6 +194,7 @@ class GardenNode(AuditMixin, db.Model):
     notes = db.Column(db.Text, nullable=True)
     quantity = db.Column(db.Integer, nullable=False, default=1)
     life_cycle = db.Column(db.String(16), nullable=True)
+    cultivation_year = db.Column(db.Integer, nullable=True)
     planting_date = db.Column(db.Date, nullable=True)
     death_year = db.Column(db.Integer, nullable=True)
     hero_image_path = db.Column(db.String(255), nullable=True)
@@ -206,6 +206,7 @@ class GardenNode(AuditMixin, db.Model):
     overlay_shape = db.Column(db.String(16), nullable=False, default="point")
     overlay_width = db.Column(db.Float, nullable=False, default=18.0)
     overlay_height = db.Column(db.Float, nullable=False, default=12.0)
+    additional_positions_json = db.Column(db.Text, nullable=True)
     area_corner_1_x = db.Column(db.Float, nullable=True)
     area_corner_1_y = db.Column(db.Float, nullable=True)
     area_corner_2_x = db.Column(db.Float, nullable=True)
@@ -233,6 +234,13 @@ class GardenNode(AuditMixin, db.Model):
         "GardenNode",
         remote_side=[id],
         back_populates="children",
+        foreign_keys=[parent_id],
+    )
+    cloned_from_node = db.relationship(
+        "GardenNode",
+        remote_side=[id],
+        back_populates="cloned_nodes",
+        foreign_keys=[cloned_from_node_id],
     )
     marker_color = db.relationship("MarkerColor", back_populates="nodes")
     children = db.relationship(
@@ -240,6 +248,13 @@ class GardenNode(AuditMixin, db.Model):
         back_populates="parent",
         cascade="all, delete-orphan",
         order_by="GardenNode.sort_order, GardenNode.title",
+        foreign_keys=[parent_id],
+    )
+    cloned_nodes = db.relationship(
+        "GardenNode",
+        back_populates="cloned_from_node",
+        order_by="GardenNode.cultivation_year, GardenNode.title",
+        foreign_keys=[cloned_from_node_id],
     )
     photos = db.relationship(
         "NodePhoto",
@@ -284,6 +299,8 @@ class GardenNode(AuditMixin, db.Model):
     def display_image(self) -> str | None:
         if self.hero_image_path:
             return self.hero_image_path
+        if self.default_photo:
+            return self.default_photo.image_path
         if self.latest_photo:
             return self.latest_photo.image_path
         return None
@@ -308,6 +325,13 @@ class GardenNode(AuditMixin, db.Model):
             reverse=True,
         )[0]
 
+    @property
+    def default_photo(self) -> "NodePhoto | None":
+        for photo in self.photos:
+            if photo.is_default:
+                return photo
+        return None
+
     def breadcrumbs(self) -> list["GardenNode"]:
         current = self
         trail: list[GardenNode] = []
@@ -315,6 +339,60 @@ class GardenNode(AuditMixin, db.Model):
             trail.append(current)
             current = current.parent
         return list(reversed(trail))
+
+    @property
+    def top_level_ancestor(self) -> "GardenNode":
+        current = self
+        while current.parent is not None:
+            current = current.parent
+        return current
+
+    @property
+    def section_ancestor(self) -> "GardenNode":
+        current = self
+        while current is not None:
+            if current.level == 2:
+                return current
+            current = current.parent
+        return self.top_level_ancestor
+
+    @property
+    def effective_cultivation_year(self) -> int | None:
+        if self.cultivation_year is not None:
+            return self.cultivation_year
+        if self.life_cycle == "annual" and self.planting_date is not None:
+            return self.planting_date.year
+        return None
+
+    @property
+    def lineage_root(self) -> "GardenNode":
+        current = self
+        while current.cloned_from_node is not None:
+            current = current.cloned_from_node
+        return current
+
+    def lineage_nodes(self) -> list["GardenNode"]:
+        root = self.lineage_root
+        ordered: list[GardenNode] = []
+        stack = [root]
+        seen_ids: set[int] = set()
+
+        while stack:
+            candidate = stack.pop()
+            if candidate.id in seen_ids:
+                continue
+            seen_ids.add(candidate.id)
+            ordered.append(candidate)
+            stack.extend(reversed(candidate.cloned_nodes))
+
+        return sorted(
+            ordered,
+            key=lambda candidate: (
+                candidate.effective_cultivation_year or 0,
+                candidate.created_at,
+                candidate.id,
+            ),
+        )
 
     @property
     def has_hotspot(self) -> bool:
@@ -338,6 +416,33 @@ class GardenNode(AuditMixin, db.Model):
         if not icon:
             return None
         return icon
+
+    @property
+    def point_positions(self) -> list[tuple[float, float]]:
+        positions: list[tuple[float, float]] = []
+        if self.map_x is not None and self.map_y is not None:
+            positions.append((float(self.map_x), float(self.map_y)))
+
+        if self.additional_positions_json:
+            try:
+                raw_positions = json.loads(self.additional_positions_json)
+            except (TypeError, ValueError):
+                raw_positions = []
+
+            if isinstance(raw_positions, list):
+                for item in raw_positions:
+                    if not isinstance(item, dict):
+                        continue
+                    x = item.get("x")
+                    y = item.get("y")
+                    if x is None or y is None:
+                        continue
+                    try:
+                        positions.append((float(x), float(y)))
+                    except (TypeError, ValueError):
+                        continue
+
+        return positions
 
     @property
     def area_polygon_points(self) -> list[tuple[float, float]]:
@@ -427,6 +532,7 @@ class NodePhoto(AuditMixin, db.Model):
     caption = db.Column(db.Text, nullable=True)
     image_path = db.Column(db.String(255), nullable=False)
     taken_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(UTC))
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
@@ -439,6 +545,7 @@ class ActivityType(AuditMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
     description = db.Column(db.Text, nullable=True)
+    tracks_quantity_kg = db.Column(db.Boolean, nullable=False, default=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
@@ -457,6 +564,7 @@ class NodeActivity(AuditMixin, db.Model):
     activity_type_id = db.Column(db.Integer, db.ForeignKey("activity_types.id"), nullable=False)
     happened_on = db.Column(db.Date, nullable=False)
     description = db.Column(db.Text, nullable=False)
+    quantity_kg = db.Column(db.Float, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
     node = db.relationship("GardenNode", back_populates="activities")
@@ -489,6 +597,7 @@ class LinkType(AuditMixin, db.Model):
     description = db.Column(db.Text, nullable=True)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     requires_label = db.Column(db.Boolean, nullable=False, default=False)
+    requires_url = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
     links = db.relationship(
@@ -767,20 +876,26 @@ def ensure_seed_data() -> None:
         marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
 
     default_activity_types = [
-        ("Fertilization", "Fertilizer application and soil enrichment."),
-        ("Plowing", "Soil preparation, plowing, or tilling work."),
-        ("Disinfestation", "Pest treatment, disease treatment, or disinfestation."),
+        ("Fertilization", "Fertilizer application and soil enrichment.", False),
+        ("Plowing", "Soil preparation, plowing, or tilling work.", False),
+        ("Disinfestation", "Pest treatment, disease treatment, or disinfestation.", False),
+        ("Sowing", "Sowing or planting activity with tracked input quantity in kilograms.", True),
+        ("Harvest", "Harvest activity with tracked harvested quantity in kilograms.", True),
     ]
-    for index, (name, description) in enumerate(default_activity_types):
+    for index, (name, description, tracks_quantity_kg) in enumerate(default_activity_types):
         activity_type = ActivityType.query.filter_by(name=name).first()
         if activity_type is None:
             db.session.add(
                 ActivityType(
                     name=name,
                     description=description,
+                    tracks_quantity_kg=tracks_quantity_kg,
                     sort_order=index,
                 )
             )
+        else:
+            activity_type.description = activity_type.description or description
+            activity_type.tracks_quantity_kg = tracks_quantity_kg
 
     default_link_types = [
         (
@@ -831,6 +946,170 @@ def ensure_seed_data() -> None:
             node.hotspot_color = node.marker_color.hex_value
 
     db.session.commit()
+
+
+def _sqlite_index_columns(connection, index_name: str) -> list[str]:
+    rows = connection.exec_driver_sql(f"PRAGMA index_info('{index_name}')").fetchall()
+    return [row[2] for row in rows]
+
+
+def _sync_users_email_optionality(connection) -> None:
+    email_column = next(
+        (column for column in inspect(db.engine).get_columns("users") if column["name"] == "email"),
+        None,
+    )
+    if email_column is None or email_column.get("nullable", True):
+        return
+
+    if db.engine.dialect.name == "sqlite":
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(
+            text(
+                "CREATE TABLE users_new ("
+                " id INTEGER NOT NULL PRIMARY KEY,"
+                " username VARCHAR(80) NOT NULL UNIQUE,"
+                " email VARCHAR(255) UNIQUE,"
+                " preferred_locale VARCHAR(8) NOT NULL DEFAULT 'en',"
+                " password_hash VARCHAR(255) NOT NULL,"
+                " is_active BOOLEAN NOT NULL DEFAULT 1,"
+                " last_login_at DATETIME,"
+                " created_at DATETIME NOT NULL,"
+                " created_by_name VARCHAR(80),"
+                " updated_by_name VARCHAR(80)"
+                ")"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO users_new ("
+                " id, username, email, preferred_locale, password_hash, is_active,"
+                " last_login_at, created_at, created_by_name, updated_by_name"
+                " ) "
+                "SELECT "
+                " id, username, NULLIF(email, ''), preferred_locale, password_hash, is_active,"
+                " last_login_at, created_at, created_by_name, updated_by_name "
+                "FROM users"
+            )
+        )
+        connection.execute(text("DROP TABLE users"))
+        connection.execute(text("ALTER TABLE users_new RENAME TO users"))
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        return
+
+    connection.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
+
+
+def _sync_garden_node_uniqueness(connection) -> None:
+    if db.engine.dialect.name == "sqlite":
+        index_rows = connection.exec_driver_sql("PRAGMA index_list('garden_nodes')").fetchall()
+        new_index_present = False
+        legacy_unique_present = False
+
+        for row in index_rows:
+            index_name = row[1]
+            is_unique = bool(row[2])
+            columns = _sqlite_index_columns(connection, index_name)
+            if index_name == "uq_node_parent_title_cultivation_year":
+                new_index_present = True
+            if is_unique and columns == ["parent_id", "title"]:
+                legacy_unique_present = True
+
+        if legacy_unique_present:
+            connection.execute(text("PRAGMA foreign_keys=OFF"))
+            connection.execute(
+                text(
+                    "CREATE TABLE garden_nodes_new ("
+                    " id INTEGER NOT NULL PRIMARY KEY,"
+                    " parent_id INTEGER,"
+                    " cloned_from_node_id INTEGER,"
+                    " level INTEGER NOT NULL,"
+                    " node_type VARCHAR(32) NOT NULL,"
+                    " title VARCHAR(120) NOT NULL,"
+                    " summary TEXT,"
+                    " notes TEXT,"
+                    " quantity INTEGER NOT NULL DEFAULT 1,"
+                    " life_cycle VARCHAR(16),"
+                    " cultivation_year INTEGER,"
+                    " planting_date DATE,"
+                    " death_year INTEGER,"
+                    " hero_image_path VARCHAR(255),"
+                    " image_display_mode VARCHAR(16) NOT NULL DEFAULT 'contain',"
+                    " image_focus_x FLOAT NOT NULL DEFAULT 50.0,"
+                    " image_focus_y FLOAT NOT NULL DEFAULT 50.0,"
+                    " map_x FLOAT,"
+                    " map_y FLOAT,"
+                    " overlay_shape VARCHAR(16) NOT NULL DEFAULT 'point',"
+                    " overlay_width FLOAT NOT NULL DEFAULT 18.0,"
+                    " overlay_height FLOAT NOT NULL DEFAULT 12.0,"
+                    " additional_positions_json TEXT,"
+                    " area_corner_1_x FLOAT,"
+                    " area_corner_1_y FLOAT,"
+                    " area_corner_2_x FLOAT,"
+                    " area_corner_2_y FLOAT,"
+                    " area_corner_3_x FLOAT,"
+                    " area_corner_3_y FLOAT,"
+                    " area_corner_4_x FLOAT,"
+                    " area_corner_4_y FLOAT,"
+                    " marker_color_id INTEGER,"
+                    " hotspot_color VARCHAR(16) NOT NULL DEFAULT '#2f6f4f',"
+                    " marker_icon VARCHAR(64),"
+                    " geo_lat FLOAT,"
+                    " geo_lng FLOAT,"
+                    " sort_order INTEGER NOT NULL DEFAULT 0,"
+                    " is_published BOOLEAN NOT NULL DEFAULT 1,"
+                    " created_at DATETIME NOT NULL,"
+                    " updated_at DATETIME NOT NULL,"
+                    " created_by_name VARCHAR(80),"
+                    " updated_by_name VARCHAR(80),"
+                    " FOREIGN KEY(parent_id) REFERENCES garden_nodes (id),"
+                    " FOREIGN KEY(cloned_from_node_id) REFERENCES garden_nodes (id),"
+                    " FOREIGN KEY(marker_color_id) REFERENCES marker_colors (id)"
+                    ")"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO garden_nodes_new ("
+                    " id, parent_id, cloned_from_node_id, level, node_type, title, summary, notes, quantity,"
+                    " life_cycle, cultivation_year, planting_date, death_year, hero_image_path,"
+                    " image_display_mode, image_focus_x, image_focus_y, map_x, map_y, overlay_shape,"
+                    " overlay_width, overlay_height, additional_positions_json,"
+                    " area_corner_1_x, area_corner_1_y, area_corner_2_x, area_corner_2_y,"
+                    " area_corner_3_x, area_corner_3_y, area_corner_4_x, area_corner_4_y,"
+                    " marker_color_id, hotspot_color, marker_icon, geo_lat, geo_lng,"
+                    " sort_order, is_published, created_at, updated_at, created_by_name, updated_by_name"
+                    " ) "
+                    "SELECT "
+                    " id, parent_id, cloned_from_node_id, level, node_type, title, summary, notes, quantity,"
+                    " life_cycle, cultivation_year, planting_date, death_year, hero_image_path,"
+                    " image_display_mode, image_focus_x, image_focus_y, map_x, map_y, overlay_shape,"
+                    " overlay_width, overlay_height, additional_positions_json,"
+                    " area_corner_1_x, area_corner_1_y, area_corner_2_x, area_corner_2_y,"
+                    " area_corner_3_x, area_corner_3_y, area_corner_4_x, area_corner_4_y,"
+                    " marker_color_id, hotspot_color, marker_icon, geo_lat, geo_lng,"
+                    " sort_order, is_published, created_at, updated_at, created_by_name, updated_by_name "
+                    "FROM garden_nodes"
+                )
+            )
+            connection.execute(text("DROP TABLE garden_nodes"))
+            connection.execute(text("ALTER TABLE garden_nodes_new RENAME TO garden_nodes"))
+            connection.execute(text("PRAGMA foreign_keys=ON"))
+
+        if not new_index_present or legacy_unique_present:
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_node_parent_title_cultivation_year "
+                    "ON garden_nodes (COALESCE(parent_id, -1), title, COALESCE(cultivation_year, -1))"
+                )
+            )
+        return
+
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_node_parent_title_cultivation_year "
+            "ON garden_nodes (parent_id, title, COALESCE(cultivation_year, -1))"
+        )
+    )
 
 
 def sync_schema() -> None:
@@ -932,6 +1211,10 @@ def sync_schema() -> None:
                 "ALTER TABLE activity_types "
                 "ADD COLUMN updated_by_name VARCHAR(80)"
             ),
+            "tracks_quantity_kg": (
+                "ALTER TABLE activity_types "
+                "ADD COLUMN tracks_quantity_kg BOOLEAN NOT NULL DEFAULT 0"
+            ),
         },
         "node_activities": {
             "created_by_name": (
@@ -941,6 +1224,10 @@ def sync_schema() -> None:
             "updated_by_name": (
                 "ALTER TABLE node_activities "
                 "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "quantity_kg": (
+                "ALTER TABLE node_activities "
+                "ADD COLUMN quantity_kg FLOAT"
             ),
         },
         "node_activity_images": {
@@ -954,6 +1241,10 @@ def sync_schema() -> None:
             ),
         },
         "garden_nodes": {
+            "cloned_from_node_id": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN cloned_from_node_id INTEGER"
+            ),
             "created_by_name": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN created_by_name VARCHAR(80)"
@@ -969,6 +1260,10 @@ def sync_schema() -> None:
             "life_cycle": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN life_cycle VARCHAR(16)"
+            ),
+            "cultivation_year": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN cultivation_year INTEGER"
             ),
             "planting_date": (
                 "ALTER TABLE garden_nodes "
@@ -1001,6 +1296,10 @@ def sync_schema() -> None:
             "overlay_height": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN overlay_height FLOAT NOT NULL DEFAULT 12"
+            ),
+            "additional_positions_json": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN additional_positions_json TEXT"
             ),
             "area_corner_1_x": "ALTER TABLE garden_nodes ADD COLUMN area_corner_1_x FLOAT",
             "area_corner_1_y": "ALTER TABLE garden_nodes ADD COLUMN area_corner_1_y FLOAT",
@@ -1038,6 +1337,10 @@ def sync_schema() -> None:
                 "ALTER TABLE node_photos "
                 "ADD COLUMN taken_at DATETIME"
             ),
+            "is_default": (
+                "ALTER TABLE node_photos "
+                "ADD COLUMN is_default BOOLEAN NOT NULL DEFAULT 0"
+            ),
         },
         "node_home_assistant_entities": {
             "created_by_name": (
@@ -1063,6 +1366,10 @@ def sync_schema() -> None:
             "updated_by_name": (
                 "ALTER TABLE link_types "
                 "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "requires_url": (
+                "ALTER TABLE link_types "
+                "ADD COLUMN requires_url BOOLEAN NOT NULL DEFAULT 1"
             ),
             "requires_label": (
                 "ALTER TABLE link_types "
@@ -1120,6 +1427,9 @@ def sync_schema() -> None:
                     if "duplicate column name" not in str(exc).lower():
                         raise
 
+    if "users" in existing_tables:
+        _sync_users_email_optionality(connection)
+
     if "node_photos" in existing_tables:
         connection.execute(
             text(
@@ -1127,5 +1437,29 @@ def sync_schema() -> None:
                 "SET taken_at = COALESCE(taken_at, created_at)"
             )
         )
+        connection.execute(
+            text(
+                "UPDATE node_photos "
+                "SET is_default = 1 "
+                "WHERE id IN ("
+                "  SELECT selected.id FROM ("
+                "    SELECT np.id, np.node_id "
+                "    FROM node_photos np "
+                "    JOIN ("
+                "      SELECT node_id, MAX(taken_at) AS max_taken_at "
+                "      FROM node_photos "
+                "      GROUP BY node_id"
+                "    ) latest ON latest.node_id = np.node_id AND latest.max_taken_at = np.taken_at "
+                "    WHERE NOT EXISTS ("
+                "      SELECT 1 FROM node_photos existing_default "
+                "      WHERE existing_default.node_id = np.node_id AND existing_default.is_default = 1"
+                "    )"
+                "  ) selected"
+                ")"
+            )
+        )
+
+    if "garden_nodes" in existing_tables:
+        _sync_garden_node_uniqueness(connection)
 
     db.session.commit()

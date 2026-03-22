@@ -40,6 +40,11 @@
             {{ form.description(class_="input input-textarea") }}
           </label>
 
+          <label class="full-width inline-check">
+            {{ form.tracks_quantity_kg() }}
+            <span>{{ tr("activity_types.quantity_tracking") }}</span>
+          </label>
+
           <div>
             {{ form.submit(class_="button", value=tr("common.save")) }}
           </div>
@@ -61,6 +66,7 @@
                 <tr>
                   <th>{{ tr("activity_types.name") }}</th>
                   <th>{{ tr("node.description") }}</th>
+                  <th>{{ tr("activity_types.quantity_tracking") }}</th>
                   <th>{{ tr("activity_types.sort_order") }}</th>
                   <th>{{ tr("activity_types.used_count") }}</th>
                   <th>{{ tr("audit.title") }}</th>
@@ -72,6 +78,7 @@
                   <tr>
                     <td>{{ activity_type.name }}</td>
                     <td>{{ activity_type.description or "-" }}</td>
+                    <td>{{ tr("node.yes") if activity_type.tracks_quantity_kg else tr("node.no") }}</td>
                     <td>{{ activity_type.sort_order }}</td>
                     <td>{{ activity_type.activities|length }}</td>
                     <td>

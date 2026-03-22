@@ -47,7 +47,7 @@ flask --app app init-db
 4. Create the first admin user:
 
 ```bash
-flask --app app create-admin --username admin --email admin@example.com --password change-me
+flask --app app create-admin --username admin --password change-me
 ```
 
 5. Run the development server:
@@ -93,7 +93,7 @@ GOOGLE_MAPS_API_KEY=
 
 # bootstrap first admin user on first start
 PIANTALA_ADMIN_USERNAME=admin
-PIANTALA_ADMIN_EMAIL=admin@example.com
+PIANTALA_ADMIN_EMAIL=
 PIANTALA_ADMIN_PASSWORD=change-me-now
 ```
 
@@ -145,6 +145,26 @@ docker compose up -d
 
 Because the database and uploads live in Docker volumes, updates replace the app container but keep the data.
 
+There is also a helper script that does the backup and update in one step:
+
+```bash
+./scripts/update_docker.sh
+```
+
+What it does:
+
+- optionally runs `git pull --ff-only`
+- creates timestamped backups of `piantala_instance` and `piantala_uploads`
+- rebuilds and restarts the Docker stack
+- shows the final container status
+
+Useful options:
+
+```bash
+PULL_CHANGES=0 ./scripts/update_docker.sh
+BACKUP_DIR=/root/piantala-backups ./scripts/update_docker.sh
+```
+
 ### Backups before updates
 
 Before updating, back up both persistent volumes:
@@ -176,6 +196,8 @@ For open-source/public development, a simple and reliable workflow is:
 5. pull the tag, rebuild, and restart
 
 That gives you repeatable deployments and easy rollback points.
+
+Release notes live in [CHANGELOG.md](CHANGELOG.md), so each tagged version has a visible feature summary.
 
 ### SQLite now, Postgres later
 

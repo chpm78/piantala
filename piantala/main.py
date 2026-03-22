@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, UTC
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -141,6 +142,192 @@ def _polygon_bounds(points: list[tuple[float, float]]) -> tuple[float, float]:
     return (max(max(xs) - min(xs), 0.5), max(max(ys) - min(ys), 0.5))
 
 
+def _set_default_photo(node: GardenNode, selected_photo: NodePhoto | None) -> None:
+    for photo in node.photos:
+        photo.is_default = selected_photo is not None and photo.id == selected_photo.id
+
+
+def _annual_direct_children(node: GardenNode) -> list[GardenNode]:
+    return [child for child in node.children if child.life_cycle == "annual"]
+
+
+def _default_selected_year(node: GardenNode, annual_children: list[GardenNode]) -> int | None:
+    current_year = datetime.now(UTC).year
+    available_years = sorted(
+        {child.effective_cultivation_year for child in annual_children if child.effective_cultivation_year is not None},
+        reverse=True,
+    )
+    if not available_years:
+        return None
+    if current_year in available_years:
+        return current_year
+    return available_years[0]
+
+
+def _clone_scope_candidates(
+    node: GardenNode,
+    *,
+    source_section_id: int | None,
+    year_range: int,
+    target_year: int,
+) -> list[GardenNode]:
+    candidate_level = node.level + 1
+    lower_year = max(target_year - year_range, 0)
+    candidates = GardenNode.query.filter_by(level=candidate_level, life_cycle="annual").all()
+    filtered: list[GardenNode] = []
+
+    for candidate in candidates:
+        candidate_year = candidate.effective_cultivation_year
+        if candidate_year is None or candidate_year >= target_year or candidate_year < lower_year:
+            continue
+        if candidate.id == node.id:
+            continue
+        if source_section_id is not None and candidate.section_ancestor.id != source_section_id:
+            continue
+        filtered.append(candidate)
+
+    return sorted(
+        filtered,
+        key=lambda candidate: (
+            -(candidate.effective_cultivation_year or 0),
+            candidate.section_ancestor.title,
+            candidate.parent.title if candidate.parent else "",
+            candidate.title,
+        ),
+    )
+
+
+def _copy_clone_position(source: GardenNode, target: GardenNode, *, preserve_existing: bool = False) -> None:
+    if preserve_existing and (
+        target.map_x is not None
+        or target.map_y is not None
+        or target.additional_positions_json
+        or any(
+            value is not None
+            for value in (
+                target.area_corner_1_x,
+                target.area_corner_1_y,
+                target.area_corner_2_x,
+                target.area_corner_2_y,
+                target.area_corner_3_x,
+                target.area_corner_3_y,
+                target.area_corner_4_x,
+                target.area_corner_4_y,
+            )
+        )
+    ):
+        return
+
+    target.map_x = source.map_x
+    target.map_y = source.map_y
+    target.overlay_shape = source.overlay_shape
+    target.overlay_width = source.overlay_width
+    target.overlay_height = source.overlay_height
+    target.additional_positions_json = source.additional_positions_json
+    target.area_corner_1_x = source.area_corner_1_x
+    target.area_corner_1_y = source.area_corner_1_y
+    target.area_corner_2_x = source.area_corner_2_x
+    target.area_corner_2_y = source.area_corner_2_y
+    target.area_corner_3_x = source.area_corner_3_x
+    target.area_corner_3_y = source.area_corner_3_y
+    target.area_corner_4_x = source.area_corner_4_x
+    target.area_corner_4_y = source.area_corner_4_y
+
+
+def _clone_cultivation_node(source: GardenNode, target_parent: GardenNode, target_year: int) -> GardenNode:
+    planting_date = source.planting_date
+    if planting_date is not None:
+        try:
+            planting_date = planting_date.replace(year=target_year)
+        except ValueError:
+            planting_date = planting_date.replace(year=target_year, day=28)
+
+    clone = GardenNode(
+        parent=target_parent,
+        cloned_from_node=source,
+        level=source.level,
+        node_type=source.node_type,
+        title=source.title,
+        summary=source.summary,
+        notes=source.notes,
+        quantity=source.quantity,
+        life_cycle=source.life_cycle,
+        cultivation_year=target_year if source.life_cycle == "annual" else source.cultivation_year,
+        planting_date=planting_date,
+        death_year=None,
+        hero_image_path=None,
+        image_display_mode=source.image_display_mode,
+        image_focus_x=source.image_focus_x,
+        image_focus_y=source.image_focus_y,
+        map_x=source.map_x,
+        map_y=source.map_y,
+        overlay_shape=source.overlay_shape,
+        overlay_width=source.overlay_width,
+        overlay_height=source.overlay_height,
+        additional_positions_json=source.additional_positions_json,
+        area_corner_1_x=source.area_corner_1_x,
+        area_corner_1_y=source.area_corner_1_y,
+        area_corner_2_x=source.area_corner_2_x,
+        area_corner_2_y=source.area_corner_2_y,
+        area_corner_3_x=source.area_corner_3_x,
+        area_corner_3_y=source.area_corner_3_y,
+        area_corner_4_x=source.area_corner_4_x,
+        area_corner_4_y=source.area_corner_4_y,
+        marker_color=source.marker_color,
+        hotspot_color=source.hotspot_color,
+        marker_icon=source.marker_icon,
+        geo_lat=None,
+        geo_lng=None,
+        sort_order=source.sort_order,
+        is_published=source.is_published,
+    )
+    db.session.add(clone)
+    db.session.flush()
+    _copy_clone_position(source, clone)
+
+    for link in source.external_links:
+        db.session.add(
+            NodeExternalLink(
+                node=clone,
+                link_type=link.link_type,
+                label=link.label,
+                url=link.url,
+                description=link.description,
+            )
+        )
+
+    for child in source.children:
+        _clone_cultivation_node(child, clone, target_year)
+
+    return clone
+
+
+def _point_positions_from_json(value: str | None) -> list[tuple[float, float]]:
+    if not value:
+        return []
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    positions: list[tuple[float, float]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        x = item.get("x")
+        y = item.get("y")
+        if x is None or y is None:
+            continue
+        try:
+            positions.append((_clamp_percent(float(x)), _clamp_percent(float(y))))
+        except (TypeError, ValueError):
+            continue
+    return positions
+
+
 @bp.route("/")
 @login_required
 @permission_required("view_dashboard")
@@ -216,6 +403,10 @@ def create_root_node():
 def node_detail(node_id: int):
     node = GardenNode.query.get_or_404(node_id)
     show_dead_children = request.args.get("show_dead") == "1"
+    annual_children = _annual_direct_children(node)
+    selected_year = request.args.get("year", type=int)
+    if annual_children and selected_year is None:
+        selected_year = _default_selected_year(node, annual_children)
     ordered_photos = sorted(
         node.photos,
         key=lambda photo: (photo.taken_at, photo.id),
@@ -229,7 +420,7 @@ def node_detail(node_id: int):
             None,
         )
     if selected_photo is None and ordered_photos:
-        selected_photo = ordered_photos[0]
+        selected_photo = node.default_photo or ordered_photos[0]
 
     current_image_path = (
         selected_photo.image_path
@@ -239,7 +430,12 @@ def node_detail(node_id: int):
     visible_children = [
         child
         for child in node.children
-        if show_dead_children or not child.is_dead
+        if (show_dead_children or not child.is_dead)
+        and (
+            child.life_cycle != "annual"
+            or selected_year is None
+            or child.effective_cultivation_year == selected_year
+        )
     ]
     image_children = [
         child
@@ -256,11 +452,45 @@ def node_detail(node_id: int):
         entry.entity_id: entry
         for entry in HomeAssistantEntityCatalog.query.all()
     }
+    current_year = datetime.now(UTC).year
+    available_cultivation_years = sorted(
+        {child.effective_cultivation_year for child in annual_children if child.effective_cultivation_year is not None},
+        reverse=True,
+    )
+    source_sections = GardenNode.query.filter_by(level=2).order_by(GardenNode.title).all()
+    current_section = node.section_ancestor
+    selected_source_section_id = request.args.get("clone_section_id", type=int)
+    if selected_source_section_id is None and node.level > 1:
+        selected_source_section_id = current_section.id
+    year_range = request.args.get("clone_year_range", type=int) or 1
+    clone_candidates = (
+        _clone_scope_candidates(
+            node,
+            source_section_id=selected_source_section_id,
+            year_range=year_range,
+            target_year=current_year,
+        )
+        if node.level in {2, 3}
+        else []
+    )
+    cultivation_history = (
+        node.lineage_nodes()
+        if node.life_cycle == "annual" and (node.cloned_from_node is not None or node.cloned_nodes)
+        else []
+    )
     return render_template(
         "node_detail.html",
         node=node,
         visible_children=visible_children,
         show_dead_children=show_dead_children,
+        selected_year=selected_year,
+        available_cultivation_years=available_cultivation_years,
+        current_year=current_year,
+        clone_candidates=clone_candidates,
+        selected_source_section_id=selected_source_section_id,
+        source_sections=source_sections,
+        clone_year_range=year_range,
+        cultivation_history=cultivation_history,
         current_image_path=current_image_path,
         selected_photo=selected_photo,
         ordered_photos=ordered_photos,
@@ -275,6 +505,69 @@ def node_detail(node_id: int):
         ha_is_configured=HomeAssistantSettings.get_or_create().is_configured,
         ha_catalog_count=HomeAssistantEntityCatalog.query.count(),
         delete_form=DeleteForm(),
+    )
+
+
+@bp.route("/nodes/<int:node_id>/clone-cultivations", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def clone_cultivations(node_id: int):
+    node = GardenNode.query.get_or_404(node_id)
+    if node.level not in {2, 3}:
+        flash("Cultivation cloning is only available on sections and beds.", "warning")
+        return redirect(url_for("main.node_detail", node_id=node.id))
+
+    selected_ids = request.form.getlist("candidate_ids")
+    target_year = request.form.get("target_year", type=int) or datetime.now(UTC).year
+    source_section_id = request.form.get("source_section_id", type=int)
+    year_range = request.form.get("year_range", type=int) or 1
+
+    allowed_candidates = {
+        candidate.id: candidate
+        for candidate in _clone_scope_candidates(
+            node,
+            source_section_id=source_section_id,
+            year_range=year_range,
+            target_year=target_year,
+        )
+    }
+
+    cloned_count = 0
+    for raw_id in selected_ids:
+        try:
+            source_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        source = allowed_candidates.get(source_id)
+        if source is None:
+            continue
+
+        duplicate = GardenNode.query.filter_by(
+            parent_id=node.id,
+            cloned_from_node_id=source.id,
+            cultivation_year=target_year,
+        ).first()
+        if duplicate is not None:
+            _copy_clone_position(source, duplicate, preserve_existing=True)
+            continue
+
+        _clone_cultivation_node(source, node, target_year)
+        cloned_count += 1
+
+    db.session.commit()
+    if cloned_count:
+        flash(f"Cloned {cloned_count} cultivation(s) into {target_year}.", "success")
+    else:
+        flash("No cultivations were cloned. They may already exist in the selected year.", "warning")
+
+    return redirect(
+        url_for(
+            "main.node_detail",
+            node_id=node.id,
+            year=target_year,
+            clone_section_id=source_section_id,
+            clone_year_range=year_range,
+        )
     )
 
 
@@ -345,6 +638,7 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         form.overlay_shape.data = "point"
         form.overlay_width.data = 18
         form.overlay_height.data = 12
+        form.additional_positions_json.data = "[]"
         form.is_published.data = True
         form.sort_order.data = 0
         if level == 1 and not use_geo_map:
@@ -363,6 +657,10 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         if level in {3, 4}:
             form.life_cycle.data = ""
     elif request.method == "GET" and node is not None:
+        form.additional_positions_json.data = json.dumps(
+            [{"x": x, "y": y} for x, y in node.point_positions]
+        )
+        form.cultivation_year.data = node.effective_cultivation_year
         if form.marker_color_id.data is None:
             default_marker_color_id = _default_marker_color_id(node.node_type, marker_colors)
             if default_marker_color_id is not None:
@@ -380,13 +678,21 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         if node.node_type == "section":
             node.quantity = 1
             node.life_cycle = None
+            node.cultivation_year = None
             node.planting_date = None
             node.death_year = None
         else:
             node.quantity = form.quantity.data or 1
             node.life_cycle = form.life_cycle.data or None
+            node.cultivation_year = (
+                form.cultivation_year.data
+                if node.life_cycle == "annual"
+                else None
+            )
             node.planting_date = form.planting_date.data
             node.death_year = form.death_year.data
+            if node.life_cycle == "annual" and node.cultivation_year is None and node.planting_date is not None:
+                node.cultivation_year = node.planting_date.year
         node.image_display_mode = form.image_display_mode.data
         node.image_focus_x = float(form.image_focus_x.data) if form.image_focus_x.data is not None else 50.0
         node.image_focus_y = float(form.image_focus_y.data) if form.image_focus_y.data is not None else 50.0
@@ -444,6 +750,26 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             node.area_corner_3_y = None
             node.area_corner_4_x = None
             node.area_corner_4_y = None
+            if parent is not None and form.overlay_shape.data == "point":
+                point_positions = _point_positions_from_json(form.additional_positions_json.data)
+                if not point_positions and form.map_x.data is not None and form.map_y.data is not None:
+                    point_positions = [
+                        (_clamp_percent(float(form.map_x.data)), _clamp_percent(float(form.map_y.data)))
+                    ]
+                if point_positions:
+                    node.map_x = point_positions[0][0]
+                    node.map_y = point_positions[0][1]
+                    node.additional_positions_json = (
+                        json.dumps(
+                            [{"x": x, "y": y} for x, y in point_positions[1:]]
+                        )
+                        if len(point_positions) > 1
+                        else None
+                    )
+                else:
+                    node.map_x = None
+                    node.map_y = None
+                    node.additional_positions_json = None
         node.geo_lat = (
             float(form.geo_lat.data)
             if level == 1 and use_geo_map and form.geo_lat.data is not None
@@ -516,6 +842,7 @@ def add_photo(node_id: int):
                 caption=form.caption.data.strip() if form.caption.data else None,
                 image_path=image_path,
                 taken_at=taken_at,
+                is_default=node.default_photo is None and uploaded_count == 0,
                 sort_order=index,
             )
             db.session.add(photo)
@@ -540,6 +867,7 @@ def add_activity(node_id: int):
             node=node,
             activity_type_id=form.activity_type_id.data,
             happened_on=form.happened_on.data,
+            quantity_kg=float(form.quantity_kg.data) if form.quantity_kg.data is not None else None,
             description=form.description.data.strip(),
         )
         db.session.add(activity)
@@ -577,11 +905,13 @@ def edit_activity(activity_id: int):
     if request.method == "GET":
         form.activity_type_id.data = activity.activity_type_id
         form.happened_on.data = activity.happened_on
+        form.quantity_kg.data = activity.quantity_kg
         form.description.data = activity.description
 
     if form.validate_on_submit():
         activity.activity_type_id = form.activity_type_id.data
         activity.happened_on = form.happened_on.data
+        activity.quantity_kg = float(form.quantity_kg.data) if form.quantity_kg.data is not None else None
         activity.description = form.description.data.strip()
 
         for image in form.images.data or []:
@@ -635,11 +965,16 @@ def edit_photo(photo_id: int):
 
     if request.method == "GET":
         form.taken_at.data = photo.taken_at.date()
+        form.is_default.data = photo.is_default
 
     if form.validate_on_submit():
         photo.title = form.title.data.strip()
         photo.caption = form.caption.data.strip() if form.caption.data else None
         photo.taken_at = datetime.combine(form.taken_at.data, datetime.min.time(), tzinfo=UTC)
+        if form.is_default.data:
+            _set_default_photo(photo.node, photo)
+        elif photo.is_default and any(candidate.id != photo.id for candidate in photo.node.photos):
+            photo.is_default = False
         photo.sort_order = form.sort_order.data or 0
         db.session.commit()
         flash("Photo updated.", "success")
@@ -660,9 +995,20 @@ def edit_photo(photo_id: int):
 def delete_photo(photo_id: int):
     photo = NodePhoto.query.get_or_404(photo_id)
     node_id = photo.node_id
+    node = photo.node
     form = DeleteForm()
     if form.validate_on_submit():
+        was_default = photo.is_default
         db.session.delete(photo)
+        if was_default:
+            remaining_photos = [candidate for candidate in node.photos if candidate.id != photo.id]
+            if remaining_photos:
+                remaining_default = sorted(
+                    remaining_photos,
+                    key=lambda candidate: (candidate.taken_at, candidate.id),
+                    reverse=True,
+                )[0]
+                _set_default_photo(node, remaining_default)
         db.session.commit()
         flash("Photo deleted.", "success")
     return redirect(url_for("main.node_detail", node_id=node_id))
@@ -684,7 +1030,7 @@ def add_link(node_id: int):
             node=node,
             link_type=link_type,
             label=form.label.data.strip() if form.label.data else "",
-            url=form.url.data.strip(),
+            url=form.url.data.strip() if form.url.data else "",
             description=form.description.data.strip() if form.description.data else None,
         )
         db.session.add(link)
@@ -731,7 +1077,7 @@ def edit_link(link_id: int):
 
         link.link_type = link_type
         link.label = form.label.data.strip() if form.label.data else ""
-        link.url = form.url.data.strip()
+        link.url = form.url.data.strip() if form.url.data else ""
         link.description = form.description.data.strip() if form.description.data else None
         db.session.commit()
         flash("Link updated.", "success")
@@ -856,9 +1202,7 @@ def edit_entity(entity_id: int):
         return redirect(url_for("main.node_detail", node_id=entity.node_id))
 
     current_image_path = (
-        entity.node.latest_photo.image_path
-        if entity.node.latest_photo is not None
-        else entity.node.display_image
+        entity.node.display_image
     )
     return render_template(
         "entity_form.html",
@@ -891,8 +1235,11 @@ def _home_assistant_entity_form() -> HomeAssistantEntityForm:
 
 
 def _activity_form(activity: NodeActivity | None = None) -> NodeActivityForm:
-    form = NodeActivityForm(prefix="activity")
     types = ActivityType.query.order_by(ActivityType.sort_order, ActivityType.name).all()
+    form = NodeActivityForm(
+        prefix="activity",
+        activity_types_by_id={activity_type.id: activity_type for activity_type in types},
+    )
     form.activity_type_id.choices = [(activity_type.id, activity_type.name) for activity_type in types]
     if request.method == "GET":
         form.happened_on.data = activity.happened_on if activity is not None else datetime.now(UTC).date()

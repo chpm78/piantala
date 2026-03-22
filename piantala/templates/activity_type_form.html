@@ -31,6 +31,11 @@
         {{ form.description(class_="input input-textarea") }}
       </label>
 
+      <label class="full-width inline-check">
+        {{ form.tracks_quantity_kg() }}
+        <span>{{ tr("activity_types.quantity_tracking") }}</span>
+      </label>
+
       <div class="form-actions">
         {{ form.submit(class_="button", value=tr("common.save")) }}
         <a class="button button-secondary" href="{{ url_for('admin.activity_types') }}">{{ tr("common.cancel") }}</a>

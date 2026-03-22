@@ -46,6 +46,12 @@
           </label>
           <small class="hint full-width">{{ tr("link_types.label_required_help") }}</small>
 
+          <label class="full-width inline-check">
+            {{ form.requires_url() }}
+            <span>{{ tr("link_types.url_required") }}</span>
+          </label>
+          <small class="hint full-width">{{ tr("link_types.url_required_help") }}</small>
+
           <label class="full-width">
             <span>{{ tr("node.description") }}</span>
             {{ form.description(class_="input input-textarea") }}
@@ -75,6 +81,7 @@
                   {% endfor %}
                   <th>{{ tr("node.description") }}</th>
                   <th>{{ tr("link_types.label_required") }}</th>
+                  <th>{{ tr("link_types.url_required") }}</th>
                   <th>{{ tr("link_types.sort_order") }}</th>
                   <th>{{ tr("link_types.used_count") }}</th>
                   <th>{{ tr("audit.title") }}</th>
@@ -89,6 +96,7 @@
                     {% endfor %}
                     <td>{{ link_type.description or "-" }}</td>
                     <td>{{ tr("node.yes") if link_type.requires_label else tr("node.no") }}</td>
+                    <td>{{ tr("node.yes") if link_type.requires_url else tr("node.no") }}</td>
                     <td>{{ link_type.sort_order }}</td>
                     <td>{{ link_type.links|length }}</td>
                     <td>

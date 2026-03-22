@@ -33,6 +33,14 @@
         {{ form.happened_on(class_="input") }}
       </label>
 
+      <label>
+        <span>{{ tr("node.quantity_kg") }}</span>
+        {{ form.quantity_kg(class_="input") }}
+        {% for error in form.quantity_kg.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
       <label class="full-width">
         <span>{{ tr("node.description") }}</span>
         {{ form.description(class_="input input-textarea tall") }}
