@@ -121,20 +121,22 @@
       </div>
 
       {% if parent %}
+        <div hidden class="full-width">
+          <input type="hidden" name="{{ form.overlay_width.name }}" id="overlay_width" value="{{ form.overlay_width.data if form.overlay_width.data is not none else 18 }}">
+          <input type="hidden" name="{{ form.overlay_height.name }}" id="overlay_height" value="{{ form.overlay_height.data if form.overlay_height.data is not none else 12 }}">
+          <input type="hidden" name="{{ form.area_corner_1_x.name }}" id="area_corner_1_x" value="{{ form.area_corner_1_x.data if form.area_corner_1_x.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_1_y.name }}" id="area_corner_1_y" value="{{ form.area_corner_1_y.data if form.area_corner_1_y.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_2_x.name }}" id="area_corner_2_x" value="{{ form.area_corner_2_x.data if form.area_corner_2_x.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_2_y.name }}" id="area_corner_2_y" value="{{ form.area_corner_2_y.data if form.area_corner_2_y.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_3_x.name }}" id="area_corner_3_x" value="{{ form.area_corner_3_x.data if form.area_corner_3_x.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_3_y.name }}" id="area_corner_3_y" value="{{ form.area_corner_3_y.data if form.area_corner_3_y.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_4_x.name }}" id="area_corner_4_x" value="{{ form.area_corner_4_x.data if form.area_corner_4_x.data is not none else '' }}">
+          <input type="hidden" name="{{ form.area_corner_4_y.name }}" id="area_corner_4_y" value="{{ form.area_corner_4_y.data if form.area_corner_4_y.data is not none else '' }}">
+        </div>
 
         <label>
           <span>{{ tr("node.overlay_type") }}</span>
-          {{ form.overlay_shape(class_="input") }}
-        </label>
-
-        <label>
-          <span>{{ tr("node.area_width") }}</span>
-          {{ form.overlay_width(class_="input") }}
-        </label>
-
-        <label>
-          <span>{{ tr("node.area_height") }}</span>
-          {{ form.overlay_height(class_="input") }}
+          {{ form.overlay_shape(class_="input", id="overlay_shape") }}
         </label>
       {% endif %}
 
@@ -249,9 +251,13 @@
         <p>{{ tr("node.child_hotspot_text") }}</p>
         <div
           class="garden-map image-overlay"
+          data-overlay-editor="true"
           data-coordinate-picker="image"
+          data-shape-input="overlay_shape"
           data-x-input="map_x"
           data-y-input="map_y"
+          data-width-input="overlay_width"
+          data-height-input="overlay_height"
           data-feedback-target="image-picker-feedback"
         >
           <div class="image-stage">
@@ -261,22 +267,60 @@
               alt="Parent image helper"
             >
             {% for sibling in parent.children if sibling.has_hotspot and (node is none or sibling.id != node.id) %}
-              <a
-                class="image-hotspot image-hotspot-static image-hotspot-{{ sibling.overlay_shape or 'point' }} image-hotspot-node-{{ sibling.node_type or 'custom' }}{% if sibling.marker_icon_class %} image-hotspot-has-icon{% endif %}"
-                href="{{ url_for('main.node_detail', node_id=sibling.id) }}"
-                style="left: {{ sibling.map_x }}%; top: {{ sibling.map_y }}%; --hotspot-color: {{ sibling.marker_color_value }};{% if sibling.overlay_shape == 'area' %} --overlay-width: {{ sibling.overlay_width or 18 }}%; --overlay-height: {{ sibling.overlay_height or 12 }}%;{% endif %}"
-                title="{{ sibling.title }}"
-                data-title="{{ sibling.title }}"
-                aria-label="{{ sibling.title }}"
-              >
-                {% if sibling.marker_icon_class %}
-                  <span class="image-hotspot-icon mdi {{ sibling.marker_icon_class }}" aria-hidden="true"></span>
-                {% endif %}
-              </a>
+              {% if sibling.overlay_shape == 'area' %}
+                <a
+                  class="image-hotspot-area-overlay image-hotspot-static"
+                  href="{{ url_for('main.node_detail', node_id=sibling.id) }}"
+                  style="{{ sibling.area_overlay_style }}"
+                  title="{{ sibling.title }}"
+                  data-title="{{ sibling.title }}"
+                  aria-label="{{ sibling.title }}"
+                >
+                  <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <polygon class="image-hotspot-area-polygon" points="{{ sibling.area_overlay_svg_points }}"></polygon>
+                  </svg>
+                  {% if sibling.marker_icon_class %}
+                    <span class="image-hotspot-area-icon mdi {{ sibling.marker_icon_class }}" aria-hidden="true"></span>
+                  {% endif %}
+                </a>
+              {% else %}
+                <a
+                  class="image-hotspot image-hotspot-static image-hotspot-point image-hotspot-node-{{ sibling.node_type or 'custom' }}{% if sibling.marker_icon_class %} image-hotspot-has-icon{% endif %}"
+                  href="{{ url_for('main.node_detail', node_id=sibling.id) }}"
+                  style="left: {{ sibling.map_x }}%; top: {{ sibling.map_y }}%; --hotspot-color: {{ sibling.marker_color_value }};"
+                  title="{{ sibling.title }}"
+                  data-title="{{ sibling.title }}"
+                  aria-label="{{ sibling.title }}"
+                >
+                  {% if sibling.marker_icon_class %}
+                    <span class="image-hotspot-icon mdi {{ sibling.marker_icon_class }}" aria-hidden="true"></span>
+                  {% endif %}
+                </a>
+              {% endif %}
             {% endfor %}
+            <div class="overlay-editor-layer" data-overlay-editor-layer>
+              <svg class="overlay-editor-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <polygon class="overlay-editor-polygon" data-overlay-editor-polygon points=""></polygon>
+              </svg>
+              {% for handle_index in range(4) %}
+                <button
+                  type="button"
+                  class="overlay-editor-handle"
+                  data-overlay-editor-handle="{{ handle_index }}"
+                  aria-label="Area corner {{ handle_index + 1 }}"
+                ></button>
+              {% endfor %}
+            </div>
+            <div
+              class="image-hotspot image-hotspot-static image-hotspot-point image-hotspot-node-{{ form.node_type.data or 'custom' }}{% if form.marker_icon.data %} image-hotspot-has-icon{% endif %}"
+              id="node-position-preview"
+              hidden
+            >
+              <span class="image-hotspot-icon mdi{% if form.marker_icon.data %} {{ form.marker_icon.data if form.marker_icon.data.startswith('mdi-') else 'mdi-' ~ form.marker_icon.data }}{% endif %}" id="node-position-preview-icon" {% if not form.marker_icon.data %}hidden{% endif %} aria-hidden="true"></span>
+            </div>
           </div>
         </div>
-        <p id="image-picker-feedback" class="hint">{{ tr("node.click_hotspot_estimate") }}</p>
+        <p id="image-picker-feedback" class="hint">{{ tr("node.overlay_editor_help") }}</p>
       </div>
     {% endif %}
   </section>

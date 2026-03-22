@@ -39,6 +39,10 @@ DEFAULT_MARKER_COLOR_BY_NODE_TYPE = {
 }
 
 
+def _clamp_percent(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
 user_roles = db.Table(
     "user_roles",
     db.Column("user_id", db.Integer, db.ForeignKey("users.id"), primary_key=True),
@@ -202,6 +206,14 @@ class GardenNode(AuditMixin, db.Model):
     overlay_shape = db.Column(db.String(16), nullable=False, default="point")
     overlay_width = db.Column(db.Float, nullable=False, default=18.0)
     overlay_height = db.Column(db.Float, nullable=False, default=12.0)
+    area_corner_1_x = db.Column(db.Float, nullable=True)
+    area_corner_1_y = db.Column(db.Float, nullable=True)
+    area_corner_2_x = db.Column(db.Float, nullable=True)
+    area_corner_2_y = db.Column(db.Float, nullable=True)
+    area_corner_3_x = db.Column(db.Float, nullable=True)
+    area_corner_3_y = db.Column(db.Float, nullable=True)
+    area_corner_4_x = db.Column(db.Float, nullable=True)
+    area_corner_4_y = db.Column(db.Float, nullable=True)
     marker_color_id = db.Column(db.Integer, db.ForeignKey("marker_colors.id"), nullable=True)
     hotspot_color = db.Column(db.String(16), nullable=False, default="#2f6f4f")
     marker_icon = db.Column(db.String(64), nullable=True)
@@ -326,6 +338,80 @@ class GardenNode(AuditMixin, db.Model):
         if not icon:
             return None
         return icon
+
+    @property
+    def area_polygon_points(self) -> list[tuple[float, float]]:
+        stored_points = [
+            (self.area_corner_1_x, self.area_corner_1_y),
+            (self.area_corner_2_x, self.area_corner_2_y),
+            (self.area_corner_3_x, self.area_corner_3_y),
+            (self.area_corner_4_x, self.area_corner_4_y),
+        ]
+        if all(x is not None and y is not None for x, y in stored_points):
+            return [(float(x), float(y)) for x, y in stored_points]
+
+        if self.map_x is None or self.map_y is None:
+            return []
+
+        half_width = (self.overlay_width or 18.0) / 2
+        half_height = (self.overlay_height or 12.0) / 2
+        return [
+            (_clamp_percent(self.map_x - half_width), _clamp_percent(self.map_y - half_height)),
+            (_clamp_percent(self.map_x + half_width), _clamp_percent(self.map_y - half_height)),
+            (_clamp_percent(self.map_x + half_width), _clamp_percent(self.map_y + half_height)),
+            (_clamp_percent(self.map_x - half_width), _clamp_percent(self.map_y + half_height)),
+        ]
+
+    @property
+    def area_overlay_style(self) -> str:
+        points = self.area_polygon_points
+        if len(points) != 4:
+            return ""
+
+        xs = [x for x, _y in points]
+        ys = [y for _x, y in points]
+        min_x = _clamp_percent(min(xs))
+        max_x = _clamp_percent(max(xs))
+        min_y = _clamp_percent(min(ys))
+        max_y = _clamp_percent(max(ys))
+        width = max(max_x - min_x, 0.5)
+        height = max(max_y - min_y, 0.5)
+        relative_points = ", ".join(
+            f"{((x - min_x) / width) * 100:.2f}% {((y - min_y) / height) * 100:.2f}%"
+            for x, y in points
+        )
+        centroid_x = sum(xs) / len(xs)
+        centroid_y = sum(ys) / len(ys)
+        tooltip_left = ((centroid_x - min_x) / width) * 100
+        tooltip_top = ((centroid_y - min_y) / height) * 100
+        return (
+            f"left: {min_x:.2f}%; "
+            f"top: {min_y:.2f}%; "
+            f"width: {width:.2f}%; "
+            f"height: {height:.2f}%; "
+            f"--tooltip-left: {tooltip_left:.2f}%; "
+            f"--tooltip-top: {tooltip_top:.2f}%; "
+            f"--hotspot-color: {self.marker_color_value};"
+        )
+
+    @property
+    def area_overlay_svg_points(self) -> str:
+        points = self.area_polygon_points
+        if len(points) != 4:
+            return ""
+
+        xs = [x for x, _y in points]
+        ys = [y for _x, y in points]
+        min_x = _clamp_percent(min(xs))
+        max_x = _clamp_percent(max(xs))
+        min_y = _clamp_percent(min(ys))
+        max_y = _clamp_percent(max(ys))
+        width = max(max_x - min_x, 0.5)
+        height = max(max_y - min_y, 0.5)
+        return " ".join(
+            f"{((x - min_x) / width) * 100:.2f},{((y - min_y) / height) * 100:.2f}"
+            for x, y in points
+        )
 
     @property
     def is_dead(self) -> bool:
@@ -916,6 +1002,14 @@ def sync_schema() -> None:
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN overlay_height FLOAT NOT NULL DEFAULT 12"
             ),
+            "area_corner_1_x": "ALTER TABLE garden_nodes ADD COLUMN area_corner_1_x FLOAT",
+            "area_corner_1_y": "ALTER TABLE garden_nodes ADD COLUMN area_corner_1_y FLOAT",
+            "area_corner_2_x": "ALTER TABLE garden_nodes ADD COLUMN area_corner_2_x FLOAT",
+            "area_corner_2_y": "ALTER TABLE garden_nodes ADD COLUMN area_corner_2_y FLOAT",
+            "area_corner_3_x": "ALTER TABLE garden_nodes ADD COLUMN area_corner_3_x FLOAT",
+            "area_corner_3_y": "ALTER TABLE garden_nodes ADD COLUMN area_corner_3_y FLOAT",
+            "area_corner_4_x": "ALTER TABLE garden_nodes ADD COLUMN area_corner_4_x FLOAT",
+            "area_corner_4_y": "ALTER TABLE garden_nodes ADD COLUMN area_corner_4_y FLOAT",
             "hotspot_color": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN hotspot_color VARCHAR(16) NOT NULL DEFAULT '#2f6f4f'"

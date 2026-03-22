@@ -44,37 +44,296 @@ function syncNodeTypeFields() {
 
 function syncMarkerPreview() {
   const preview = document.getElementById("marker-preview");
-  if (!preview) {
+  const positionPreview = document.getElementById("node-position-preview");
+  if (!preview && !positionPreview) {
     return;
   }
 
   const nodeTypeSelect = document.querySelector("select[name='node_type']");
   const markerColorSelect = document.getElementById("marker_color_id");
   const markerIconInput = document.getElementById("marker_icon");
-  const previewIcon = document.getElementById("marker-preview-icon");
-
-  ["section", "bed", "plant", "custom", "area"].forEach((nodeType) => {
-    preview.classList.remove(`image-hotspot-node-${nodeType}`);
-  });
-  preview.classList.add(`image-hotspot-node-${nodeTypeSelect?.value || "custom"}`);
-
+  const previewTargets = [
+    [preview, document.getElementById("marker-preview-icon")],
+    [positionPreview, document.getElementById("node-position-preview-icon")],
+  ];
   const selectedOption = markerColorSelect?.selectedOptions?.[0];
   const match = selectedOption?.textContent?.match(/(#[0-9a-fA-F]{6})/);
-  preview.style.setProperty("--hotspot-color", match ? match[1] : "#f28c28");
-
   const iconValue = (markerIconInput?.value || "").trim();
-  if (previewIcon) {
-    previewIcon.className = "image-hotspot-icon mdi";
+
+  previewTargets.forEach(([target, icon]) => {
+    if (!target) {
+      return;
+    }
+
+    ["section", "bed", "plant", "custom", "area"].forEach((nodeType) => {
+      target.classList.remove(`image-hotspot-node-${nodeType}`);
+    });
+    target.classList.add(`image-hotspot-node-${nodeTypeSelect?.value || "custom"}`);
+    target.style.setProperty("--hotspot-color", match ? match[1] : "#f28c28");
+
+    if (!icon) {
+      return;
+    }
+
+    icon.className = "image-hotspot-icon mdi";
     if (iconValue) {
       const normalizedIcon = iconValue.startsWith("mdi-") ? iconValue : `mdi-${iconValue}`;
-      preview.classList.add("image-hotspot-has-icon");
-      previewIcon.hidden = false;
-      previewIcon.classList.add(normalizedIcon);
+      target.classList.add("image-hotspot-has-icon");
+      icon.hidden = false;
+      icon.classList.add(normalizedIcon);
     } else {
-      preview.classList.remove("image-hotspot-has-icon");
-      previewIcon.hidden = true;
+      target.classList.remove("image-hotspot-has-icon");
+      icon.hidden = true;
     }
+  });
+}
+
+function formatPercent(value) {
+  return Number.parseFloat(value).toFixed(2);
+}
+
+function parseNullablePercent(input) {
+  if (!input) {
+    return null;
   }
+  const parsed = Number.parseFloat(input.value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildDefaultPolygon(centerX, centerY, width, height) {
+  const halfWidth = (width || 18) / 2;
+  const halfHeight = (height || 12) / 2;
+  return [
+    {
+      x: Math.max(0, Math.min(100, centerX - halfWidth)),
+      y: Math.max(0, Math.min(100, centerY - halfHeight)),
+    },
+    {
+      x: Math.max(0, Math.min(100, centerX + halfWidth)),
+      y: Math.max(0, Math.min(100, centerY - halfHeight)),
+    },
+    {
+      x: Math.max(0, Math.min(100, centerX + halfWidth)),
+      y: Math.max(0, Math.min(100, centerY + halfHeight)),
+    },
+    {
+      x: Math.max(0, Math.min(100, centerX - halfWidth)),
+      y: Math.max(0, Math.min(100, centerY + halfHeight)),
+    },
+  ];
+}
+
+function readOverlayPolygon(container) {
+  const points = [];
+  for (let index = 1; index <= 4; index += 1) {
+    const x = parseNullablePercent(document.getElementById(`area_corner_${index}_x`));
+    const y = parseNullablePercent(document.getElementById(`area_corner_${index}_y`));
+    if (x === null || y === null) {
+      return [];
+    }
+    points.push({ x, y });
+  }
+  return points;
+}
+
+function writeOverlayPolygon(points) {
+  points.forEach((point, index) => {
+    const xInput = document.getElementById(`area_corner_${index + 1}_x`);
+    const yInput = document.getElementById(`area_corner_${index + 1}_y`);
+    if (xInput) {
+      xInput.value = formatPercent(point.x);
+    }
+    if (yInput) {
+      yInput.value = formatPercent(point.y);
+    }
+  });
+
+  const xInput = document.getElementById("map_x");
+  const yInput = document.getElementById("map_y");
+  if (xInput && yInput && points.length) {
+    const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    xInput.value = formatPercent(centerX);
+    yInput.value = formatPercent(centerY);
+  }
+}
+
+function syncOverlayEditorPreview(container) {
+  const shapeInput = document.getElementById(container.dataset.shapeInput || "");
+  const xInput = document.getElementById(container.dataset.xInput || "");
+  const yInput = document.getElementById(container.dataset.yInput || "");
+  const widthInput = document.getElementById(container.dataset.widthInput || "");
+  const heightInput = document.getElementById(container.dataset.heightInput || "");
+  const editorLayer = container.querySelector("[data-overlay-editor-layer]");
+  const polygon = container.querySelector("[data-overlay-editor-polygon]");
+  const handles = Array.from(container.querySelectorAll("[data-overlay-editor-handle]"));
+  const pointPreview = document.getElementById("node-position-preview");
+  const feedback = document.getElementById(container.dataset.feedbackTarget || "");
+  const shape = shapeInput?.value || "point";
+
+  if (!editorLayer || !polygon || !pointPreview) {
+    return;
+  }
+
+  if (shape === "area") {
+    let points = readOverlayPolygon(container);
+    const centerX = parseNullablePercent(xInput);
+    const centerY = parseNullablePercent(yInput);
+    const width = parseNullablePercent(widthInput) ?? 18;
+    const height = parseNullablePercent(heightInput) ?? 12;
+
+    if (!points.length && centerX !== null && centerY !== null) {
+      points = buildDefaultPolygon(centerX, centerY, width, height);
+      writeOverlayPolygon(points);
+    }
+
+    pointPreview.hidden = true;
+    editorLayer.hidden = !points.length;
+    polygon.setAttribute(
+      "points",
+      points.map((point) => `${formatPercent(point.x)},${formatPercent(point.y)}`).join(" "),
+    );
+    handles.forEach((handle, index) => {
+      const point = points[index];
+      handle.hidden = !point;
+      if (!point) {
+        return;
+      }
+      handle.style.left = `${formatPercent(point.x)}%`;
+      handle.style.top = `${formatPercent(point.y)}%`;
+    });
+
+    if (feedback) {
+      feedback.textContent = points.length
+        ? "Drag the four corners to shape the area."
+        : "Click the image once to place a starting area, then drag the corners.";
+    }
+    return;
+  }
+
+  editorLayer.hidden = true;
+  handles.forEach((handle) => {
+    handle.hidden = true;
+  });
+  const x = parseNullablePercent(xInput);
+  const y = parseNullablePercent(yInput);
+  if (x === null || y === null) {
+    pointPreview.hidden = true;
+  } else {
+    pointPreview.hidden = false;
+    pointPreview.style.left = `${formatPercent(x)}%`;
+    pointPreview.style.top = `${formatPercent(y)}%`;
+  }
+  if (feedback) {
+    feedback.textContent = "Click the image to place the point.";
+  }
+}
+
+function initOverlayEditors() {
+  document.querySelectorAll("[data-overlay-editor='true']").forEach((container) => {
+    if (container.dataset.overlayEditorReady === "true") {
+      syncOverlayEditorPreview(container);
+      return;
+    }
+    container.dataset.overlayEditorReady = "true";
+
+    const image = container.querySelector("img");
+    const shapeInput = document.getElementById(container.dataset.shapeInput || "");
+    const widthInput = document.getElementById(container.dataset.widthInput || "");
+    const heightInput = document.getElementById(container.dataset.heightInput || "");
+    const handles = Array.from(container.querySelectorAll("[data-overlay-editor-handle]"));
+    let dragIndex = null;
+
+    const pointFromMouseEvent = (event) => {
+      if (!image) {
+        return null;
+      }
+      const rect = image.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return null;
+      }
+      return {
+        x: ((event.clientX - rect.left) / rect.width) * 100,
+        y: ((event.clientY - rect.top) / rect.height) * 100,
+      };
+    };
+
+    container.addEventListener("click", (event) => {
+      if (event.target.closest("a, button, input, textarea, select, label")) {
+        return;
+      }
+
+      const point = pointFromMouseEvent(event);
+      if (!point) {
+        return;
+      }
+
+      if ((shapeInput?.value || "point") === "area") {
+        if (!readOverlayPolygon(container).length) {
+          const width = parseNullablePercent(widthInput) ?? 18;
+          const height = parseNullablePercent(heightInput) ?? 12;
+          writeOverlayPolygon(buildDefaultPolygon(point.x, point.y, width, height));
+        }
+      } else {
+        updateImagePickerCoordinates(container, point.x, point.y);
+      }
+
+      syncOverlayEditorPreview(container);
+    });
+
+    handles.forEach((handle) => {
+      handle.addEventListener("mousedown", (event) => {
+        dragIndex = Number.parseInt(handle.dataset.overlayEditorHandle || "-1", 10);
+        event.preventDefault();
+      });
+    });
+
+    document.addEventListener("mousemove", (event) => {
+      if (dragIndex === null) {
+        return;
+      }
+      const point = pointFromMouseEvent(event);
+      if (!point) {
+        return;
+      }
+      const points = readOverlayPolygon(container);
+      if (!points[dragIndex]) {
+        return;
+      }
+      points[dragIndex] = point;
+      writeOverlayPolygon(points);
+      syncOverlayEditorPreview(container);
+    });
+
+    document.addEventListener("mouseup", () => {
+      dragIndex = null;
+    });
+
+    if (shapeInput) {
+      shapeInput.addEventListener("change", () => {
+        if (shapeInput.value !== "area") {
+          for (let index = 1; index <= 4; index += 1) {
+            const xInput = document.getElementById(`area_corner_${index}_x`);
+            const yInput = document.getElementById(`area_corner_${index}_y`);
+            if (xInput) {
+              xInput.value = "";
+            }
+            if (yInput) {
+              yInput.value = "";
+            }
+          }
+        }
+        syncOverlayEditorPreview(container);
+      });
+    }
+
+    syncOverlayEditorPreview(container);
+  });
 }
 
 document.addEventListener("click", (event) => {
@@ -86,6 +345,10 @@ document.addEventListener("click", (event) => {
 
   const picker = event.target.closest("[data-coordinate-picker='image']");
   if (!picker) {
+    return;
+  }
+
+  if (picker.dataset.overlayEditor === "true") {
     return;
   }
 
@@ -121,6 +384,10 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("select[name='node_type']")) {
     syncNodeTypeFields();
     syncMarkerPreview();
+  }
+
+  if (event.target.matches("#overlay_shape")) {
+    initOverlayEditors();
   }
 
   if (event.target.matches("#marker_color_id")) {
@@ -335,6 +602,7 @@ window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
 window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
   syncMarkerPreview();
+  initOverlayEditors();
 };
 
 if (window.google?.maps) {
@@ -347,3 +615,4 @@ if (window.L) {
 
 syncProviderPanels();
 syncNodeTypeFields();
+initOverlayEditors();

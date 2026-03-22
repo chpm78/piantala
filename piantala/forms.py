@@ -309,6 +309,46 @@ class NodeForm(FlaskForm):
         validators=[Optional(), NumberRange(min=1, max=100)],
         default=12,
     )
+    area_corner_1_x = DecimalField(
+        "Area corner 1 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_1_y = DecimalField(
+        "Area corner 1 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_2_x = DecimalField(
+        "Area corner 2 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_2_y = DecimalField(
+        "Area corner 2 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_3_x = DecimalField(
+        "Area corner 3 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_3_y = DecimalField(
+        "Area corner 3 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_4_x = DecimalField(
+        "Area corner 4 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_4_y = DecimalField(
+        "Area corner 4 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
     marker_color_id = SelectField(
         "Marker color",
         coerce=int,

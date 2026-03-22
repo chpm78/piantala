@@ -109,6 +109,38 @@ def _default_marker_color_id(node_type: str, marker_colors: list[MarkerColor]) -
     return marker_colors[0].id if marker_colors else None
 
 
+def _clamp_percent(value: float) -> float:
+    return max(0.0, min(100.0, value))
+
+
+def _polygon_from_form(form: NodeForm) -> list[tuple[float, float]]:
+    raw_points = [
+        (form.area_corner_1_x.data, form.area_corner_1_y.data),
+        (form.area_corner_2_x.data, form.area_corner_2_y.data),
+        (form.area_corner_3_x.data, form.area_corner_3_y.data),
+        (form.area_corner_4_x.data, form.area_corner_4_y.data),
+    ]
+    if not all(x is not None and y is not None for x, y in raw_points):
+        return []
+    return [(_clamp_percent(float(x)), _clamp_percent(float(y))) for x, y in raw_points]
+
+
+def _polygon_centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
+    if not points:
+        return (50.0, 50.0)
+    xs = [x for x, _y in points]
+    ys = [y for _x, y in points]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def _polygon_bounds(points: list[tuple[float, float]]) -> tuple[float, float]:
+    if not points:
+        return (18.0, 12.0)
+    xs = [x for x, _y in points]
+    ys = [y for _x, y in points]
+    return (max(max(xs) - min(xs), 0.5), max(max(ys) - min(ys), 0.5))
+
+
 @bp.route("/")
 @login_required
 @permission_required("view_dashboard")
@@ -359,8 +391,6 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         node.image_focus_x = float(form.image_focus_x.data) if form.image_focus_x.data is not None else 50.0
         node.image_focus_y = float(form.image_focus_y.data) if form.image_focus_y.data is not None else 50.0
         node.overlay_shape = form.overlay_shape.data
-        node.overlay_width = float(form.overlay_width.data) if form.overlay_width.data is not None else 18.0
-        node.overlay_height = float(form.overlay_height.data) if form.overlay_height.data is not None else 12.0
         marker_color = db.session.get(MarkerColor, form.marker_color_id.data)
         node.marker_color = marker_color
         node.hotspot_color = marker_color.hex_value if marker_color is not None else "#f28c28"
@@ -370,16 +400,50 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         node.marker_icon = marker_icon or None
         node.sort_order = form.sort_order.data or 0
         node.is_published = form.is_published.data
-        node.map_x = (
-            float(form.map_x.data)
-            if not use_geo_map and form.map_x.data is not None
-            else (float(form.map_x.data) if level > 1 and form.map_x.data is not None else None)
-        )
-        node.map_y = (
-            float(form.map_y.data)
-            if not use_geo_map and form.map_y.data is not None
-            else (float(form.map_y.data) if level > 1 and form.map_y.data is not None else None)
-        )
+        polygon_points = _polygon_from_form(form) if parent is not None and form.overlay_shape.data == "area" else []
+        if parent is not None and form.overlay_shape.data == "area" and polygon_points:
+            node.overlay_width, node.overlay_height = _polygon_bounds(polygon_points)
+            node.map_x, node.map_y = _polygon_centroid(polygon_points)
+            (
+                node.area_corner_1_x,
+                node.area_corner_1_y,
+                node.area_corner_2_x,
+                node.area_corner_2_y,
+                node.area_corner_3_x,
+                node.area_corner_3_y,
+                node.area_corner_4_x,
+                node.area_corner_4_y,
+            ) = (
+                polygon_points[0][0],
+                polygon_points[0][1],
+                polygon_points[1][0],
+                polygon_points[1][1],
+                polygon_points[2][0],
+                polygon_points[2][1],
+                polygon_points[3][0],
+                polygon_points[3][1],
+            )
+        else:
+            node.overlay_width = float(form.overlay_width.data) if form.overlay_width.data is not None else 18.0
+            node.overlay_height = float(form.overlay_height.data) if form.overlay_height.data is not None else 12.0
+            node.map_x = (
+                float(form.map_x.data)
+                if not use_geo_map and form.map_x.data is not None
+                else (float(form.map_x.data) if level > 1 and form.map_x.data is not None else None)
+            )
+            node.map_y = (
+                float(form.map_y.data)
+                if not use_geo_map and form.map_y.data is not None
+                else (float(form.map_y.data) if level > 1 and form.map_y.data is not None else None)
+            )
+            node.area_corner_1_x = None
+            node.area_corner_1_y = None
+            node.area_corner_2_x = None
+            node.area_corner_2_y = None
+            node.area_corner_3_x = None
+            node.area_corner_3_y = None
+            node.area_corner_4_x = None
+            node.area_corner_4_y = None
         node.geo_lat = (
             float(form.geo_lat.data)
             if level == 1 and use_geo_map and form.geo_lat.data is not None

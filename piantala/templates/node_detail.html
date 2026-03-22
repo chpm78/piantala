@@ -80,18 +80,36 @@
               alt="{{ node.title }}"
             >
             {% for child in image_children %}
-              <a
-                class="image-hotspot image-hotspot-{{ child.overlay_shape or 'point' }} image-hotspot-node-{{ child.node_type or 'custom' }}{% if child.marker_icon_class %} image-hotspot-has-icon{% endif %}"
-                href="{{ url_for('main.node_detail', node_id=child.id) }}"
-                style="left: {{ child.map_x }}%; top: {{ child.map_y }}%; --hotspot-color: {{ child.marker_color_value }};{% if child.overlay_shape == 'area' %} --overlay-width: {{ child.overlay_width or 18 }}%; --overlay-height: {{ child.overlay_height or 12 }}%;{% endif %}"
-                title="{{ child.title }}"
-                data-title="{{ child.title }}"
-                aria-label="{{ child.title }}"
-              >
-                {% if child.marker_icon_class %}
-                  <span class="image-hotspot-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
-                {% endif %}
-              </a>
+              {% if child.overlay_shape == 'area' %}
+                <a
+                  class="image-hotspot-area-overlay"
+                  href="{{ url_for('main.node_detail', node_id=child.id) }}"
+                  style="{{ child.area_overlay_style }}"
+                  title="{{ child.title }}"
+                  data-title="{{ child.title }}"
+                  aria-label="{{ child.title }}"
+                >
+                  <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <polygon class="image-hotspot-area-polygon" points="{{ child.area_overlay_svg_points }}"></polygon>
+                  </svg>
+                  {% if child.marker_icon_class %}
+                    <span class="image-hotspot-area-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
+                  {% endif %}
+                </a>
+              {% else %}
+                <a
+                  class="image-hotspot image-hotspot-point image-hotspot-node-{{ child.node_type or 'custom' }}{% if child.marker_icon_class %} image-hotspot-has-icon{% endif %}"
+                  href="{{ url_for('main.node_detail', node_id=child.id) }}"
+                  style="left: {{ child.map_x }}%; top: {{ child.map_y }}%; --hotspot-color: {{ child.marker_color_value }};"
+                  title="{{ child.title }}"
+                  data-title="{{ child.title }}"
+                  aria-label="{{ child.title }}"
+                >
+                  {% if child.marker_icon_class %}
+                    <span class="image-hotspot-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
+                  {% endif %}
+                </a>
+              {% endif %}
             {% endfor %}
             {% for entity in image_entities %}
               {% set catalog_entry = ha_catalog_by_entity_id.get(entity.entity_id) %}
