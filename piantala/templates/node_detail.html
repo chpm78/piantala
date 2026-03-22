@@ -69,6 +69,7 @@
             <label>
               <span>{{ tr("node.cultivation_year_view") }}</span>
               <select name="year" class="input" onchange="this.form.submit()">
+                <option value="" {% if selected_year is none %}selected{% endif %}>{{ tr("node.all_years") }}</option>
                 {% for year_value in available_cultivation_years %}
                   <option value="{{ year_value }}" {% if selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
                 {% endfor %}

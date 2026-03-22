@@ -39,6 +39,8 @@ DEFAULT_MARKER_COLOR_BY_NODE_TYPE = {
     "section": 2,
 }
 
+LEGACY_ANNUAL_CULTIVATION_YEAR = 2025
+
 
 def _clamp_percent(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
     return max(minimum, min(maximum, value))
@@ -944,6 +946,11 @@ def ensure_seed_data() -> None:
             node.marker_color = default_marker_color
         if node.marker_color is not None:
             node.hotspot_color = node.marker_color.hex_value
+        if node.life_cycle == "annual" and node.cultivation_year is None:
+            if node.planting_date is not None:
+                node.cultivation_year = node.planting_date.year
+            else:
+                node.cultivation_year = LEGACY_ANNUAL_CULTIVATION_YEAR
 
     db.session.commit()
 

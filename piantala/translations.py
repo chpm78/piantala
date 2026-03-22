@@ -196,6 +196,7 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "node.not_set": {"en": "Not set", "it": "Non impostato"},
     "node.cultivation_year": {"en": "Cultivation year", "it": "Anno di coltivazione"},
     "node.cultivation_year_view": {"en": "Show year", "it": "Mostra anno"},
+    "node.all_years": {"en": "All years", "it": "Tutti gli anni"},
     "node.cultivation_history": {"en": "Cultivation history", "it": "Storico coltivazione"},
     "node.cultivation_history_text": {
         "en": "Follow this cultivation across years and areas.",

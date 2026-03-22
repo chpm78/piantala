@@ -4,6 +4,20 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.2.1] - 2026-03-22
+
+### Added
+- Docker data export/import helper scripts for moving the live SQLite database and uploads between hosts.
+
+### Changed
+- Annual cultivation views now default to `All years` instead of silently filtering to the current season.
+
+### Fixed
+- Annual cultivations cloned into a new year now preserve their existing positions and area polygons by default.
+- Existing same-year clones can recover missing positions when cloned again.
+- Legacy annual cultivations with no `cultivation_year` are now backfilled automatically on startup, using the planting year when available and `2025` as the legacy fallback.
+- User accounts can now be created and managed without an email address across the web admin, CLI, and Docker bootstrap flow.
+
 ## [0.2.0] - 2026-03-22
 
 ### Added

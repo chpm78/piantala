@@ -151,19 +151,6 @@ def _annual_direct_children(node: GardenNode) -> list[GardenNode]:
     return [child for child in node.children if child.life_cycle == "annual"]
 
 
-def _default_selected_year(node: GardenNode, annual_children: list[GardenNode]) -> int | None:
-    current_year = datetime.now(UTC).year
-    available_years = sorted(
-        {child.effective_cultivation_year for child in annual_children if child.effective_cultivation_year is not None},
-        reverse=True,
-    )
-    if not available_years:
-        return None
-    if current_year in available_years:
-        return current_year
-    return available_years[0]
-
-
 def _clone_scope_candidates(
     node: GardenNode,
     *,
@@ -405,8 +392,6 @@ def node_detail(node_id: int):
     show_dead_children = request.args.get("show_dead") == "1"
     annual_children = _annual_direct_children(node)
     selected_year = request.args.get("year", type=int)
-    if annual_children and selected_year is None:
-        selected_year = _default_selected_year(node, annual_children)
     ordered_photos = sorted(
         node.photos,
         key=lambda photo: (photo.taken_at, photo.id),
