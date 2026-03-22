@@ -24,7 +24,17 @@ echo "Compose command:   $COMPOSE_CMD"
 
 cd "$PROJECT_DIR"
 
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  # Ignore executable-bit drift on deployment hosts so helper scripts do not block pulls.
+  git config core.fileMode false
+fi
+
 if [ "$PULL_CHANGES" = "1" ]; then
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "Error: local tracked changes are present. Commit, stash, or restore them before updating." >&2
+    git status --short >&2
+    exit 1
+  fi
   echo "Pulling latest git changes..."
   git pull --ff-only
 fi

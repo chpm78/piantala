@@ -165,6 +165,8 @@ PULL_CHANGES=0 ./scripts/update_docker.sh
 BACKUP_DIR=/root/piantala-backups ./scripts/update_docker.sh
 ```
 
+On deployment hosts, the script also sets `git config core.fileMode false` in the repo before pulling so executable-bit changes on helper scripts do not block updates.
+
 ### Backups before updates
 
 Before updating, back up both persistent volumes:
