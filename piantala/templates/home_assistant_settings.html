@@ -74,6 +74,8 @@
             {{ form.submit(class_="button", value=tr("common.save")) }}
           </div>
         </form>
+        {% set item = ha_settings %}
+        {% include "_audit_meta.html" %}
 
         <p class="hint">
           This integration uses Home Assistant base URL plus a long-lived access token. That matches the supported server-to-server pattern for the REST API.

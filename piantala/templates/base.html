@@ -4,6 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ site_name }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css"
+    >
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     {% if load_leaflet %}
       <link
@@ -25,19 +30,9 @@
             {% if current_user.has_permission('manage_content') or current_user.has_permission('manage_users') %}
               <a href="{{ url_for('admin.index') }}">{{ tr("nav.admin") }}</a>
             {% endif %}
+            <a href="{{ url_for('auth.profile') }}">{{ tr("nav.profile") }}</a>
           </nav>
           <div class="nav-user">
-            <div class="language-switcher">
-              <span>{{ tr("nav.language") }}</span>
-              {% for locale_code, _locale_label in available_locales %}
-                <a
-                  class="{% if current_locale == locale_code %}is-active{% endif %}"
-                  href="{{ url_for('main.set_locale', locale=locale_code) }}"
-                >
-                  {{ tr("locale." ~ locale_code) }}
-                </a>
-              {% endfor %}
-            </div>
             <span>{{ current_user.username }}</span>
             <form method="post" action="{{ url_for('auth.logout') }}">
               <button type="submit" class="button button-secondary">{{ tr("nav.logout") }}</button>

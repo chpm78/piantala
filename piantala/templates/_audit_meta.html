@@ -1,0 +1,10 @@
+{% if item and (item.created_by_name or item.updated_by_name) %}
+  <p class="audit-meta">
+    {% if item.created_by_name %}
+      <span>{{ tr("audit.added_by") }}: {{ item.created_by_name }}</span>
+    {% endif %}
+    {% if item.updated_by_name and item.updated_by_name != item.created_by_name %}
+      <span>{{ tr("audit.updated_by") }}: {{ item.updated_by_name }}</span>
+    {% endif %}
+  </p>
+{% endif %}

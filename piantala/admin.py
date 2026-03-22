@@ -3,15 +3,25 @@ from flask_login import current_user, login_required
 
 from .home_assistant import HomeAssistantError, sync_entity_catalog, test_connection
 from .extensions import db
-from .forms import ActionForm, ActivityTypeForm, DeleteForm, HomeAssistantSettingsForm, LinkTypeForm, UserForm
+from .forms import (
+    ActionForm,
+    ActivityTypeForm,
+    DeleteForm,
+    HomeAssistantSettingsForm,
+    LinkTypeForm,
+    MarkerColorForm,
+    UserForm,
+)
 from .models import (
     ActivityType,
     GardenSettings,
     HomeAssistantEntityCatalog,
     HomeAssistantSettings,
     LinkType,
+    MarkerColor,
     NodeActivity,
     NodeExternalLink,
+    GardenNode,
     Role,
     TranslationEntry,
     User,
@@ -102,6 +112,7 @@ def create_user():
         user = User(
             username=form.username.data.strip(),
             email=form.email.data.strip().lower(),
+            preferred_locale=form.preferred_locale.data,
             is_active=form.is_active.data,
         )
         user.set_password(form.password.data)
@@ -144,6 +155,7 @@ def edit_user(user_id: int):
 
         user.username = form.username.data.strip()
         user.email = form.email.data.strip().lower()
+        user.preferred_locale = form.preferred_locale.data
         user.is_active = form.is_active.data
         user.roles = selected_roles
         if form.password.data:
@@ -350,6 +362,88 @@ def delete_activity_type(activity_type_id: int):
             db.session.commit()
             flash("Activity type deleted.", "success")
     return redirect(url_for("admin.activity_types"))
+
+
+@bp.route("/marker-colors", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def marker_colors():
+    form = MarkerColorForm()
+
+    if form.validate_on_submit():
+        if MarkerColor.query.count() >= 16:
+            flash("Piantala supports up to 16 marker colors.", "warning")
+        else:
+            existing = MarkerColor.query.filter_by(name=form.name.data.strip()).first()
+            if existing is not None:
+                flash("A marker color with that name already exists.", "warning")
+            else:
+                db.session.add(
+                    MarkerColor(
+                        name=form.name.data.strip(),
+                        hex_value=form.hex_value.data.strip(),
+                        sort_order=form.sort_order.data or 0,
+                    )
+                )
+                db.session.commit()
+                flash("Marker color created.", "success")
+                return redirect(url_for("admin.marker_colors"))
+
+    return render_template(
+        "marker_colors.html",
+        form=form,
+        delete_form=DeleteForm(),
+        marker_colors=MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all(),
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/marker-colors/<int:marker_color_id>/edit", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def edit_marker_color(marker_color_id: int):
+    marker_color = MarkerColor.query.get_or_404(marker_color_id)
+    form = MarkerColorForm(obj=marker_color)
+
+    if form.validate_on_submit():
+        existing = MarkerColor.query.filter(
+            MarkerColor.name == form.name.data.strip(),
+            MarkerColor.id != marker_color.id,
+        ).first()
+        if existing is not None:
+            flash("A marker color with that name already exists.", "warning")
+        else:
+            marker_color.name = form.name.data.strip()
+            marker_color.hex_value = form.hex_value.data.strip()
+            marker_color.sort_order = form.sort_order.data or 0
+            for node in marker_color.nodes:
+                node.hotspot_color = marker_color.hex_value
+            db.session.commit()
+            flash("Marker color updated.", "success")
+            return redirect(url_for("admin.marker_colors"))
+
+    return render_template(
+        "marker_color_form.html",
+        form=form,
+        marker_color=marker_color,
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/marker-colors/<int:marker_color_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_marker_color(marker_color_id: int):
+    marker_color = MarkerColor.query.get_or_404(marker_color_id)
+    form = DeleteForm()
+    if form.validate_on_submit():
+        if GardenNode.query.filter_by(marker_color_id=marker_color.id).first() is not None:
+            flash("This marker color is already used by nodes and cannot be deleted.", "warning")
+        else:
+            db.session.delete(marker_color)
+            db.session.commit()
+            flash("Marker color deleted.", "success")
+    return redirect(url_for("admin.marker_colors"))
 
 
 @bp.route("/link-types", methods=["GET", "POST"])

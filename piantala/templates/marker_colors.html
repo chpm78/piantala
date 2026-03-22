@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.marker_colors") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("marker_colors.title") }}</h1>
+        <p>{{ tr("marker_colors.description") }}</p>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("marker_colors.title") }}</p>
+            <h2>{{ tr("marker_colors.create") }}</h2>
+          </div>
+        </div>
+
+        <form method="post" class="form-grid">
+          {{ form.hidden_tag() }}
+
+          <label>
+            <span>{{ tr("marker_colors.name") }}</span>
+            {{ form.name(class_="input") }}
+          </label>
+
+          <label>
+            <span>{{ tr("marker_colors.hex_value") }}</span>
+            {{ form.hex_value(class_="input") }}
+          </label>
+
+          <label>
+            <span>{{ tr("marker_colors.sort_order") }}</span>
+            {{ form.sort_order(class_="input") }}
+          </label>
+
+          <div>
+            {{ form.submit(class_="button", value=tr("common.save")) }}
+          </div>
+        </form>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("marker_colors.title") }}</p>
+            <h2>{{ tr("node.visual_navigation") }}</h2>
+          </div>
+        </div>
+
+        {% if marker_colors %}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ tr("marker_colors.preview") }}</th>
+                  <th>{{ tr("marker_colors.name") }}</th>
+                  <th>{{ tr("marker_colors.hex_value") }}</th>
+                  <th>{{ tr("marker_colors.sort_order") }}</th>
+                  <th>{{ tr("marker_colors.used_count") }}</th>
+                  <th>{{ tr("audit.title") }}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for marker_color in marker_colors %}
+                  <tr>
+                    <td><span class="color-swatch" style="--swatch-color: {{ marker_color.hex_value }};"></span></td>
+                    <td>{{ marker_color.name }}</td>
+                    <td>{{ marker_color.hex_value }}</td>
+                    <td>{{ marker_color.sort_order }}</td>
+                    <td>{{ marker_color.nodes|length }}</td>
+                    <td>
+                      {% set item = marker_color %}
+                      {% include "_audit_meta.html" %}
+                    </td>
+                    <td class="table-actions">
+                      <a class="text-link" href="{{ url_for('admin.edit_marker_color', marker_color_id=marker_color.id) }}">{{ tr("common.edit") }}</a>
+                      <form method="post" action="{{ url_for('admin.delete_marker_color', marker_color_id=marker_color.id) }}">
+                        {{ delete_form.hidden_tag() }}
+                        <button type="submit" class="button button-danger button-small" data-confirm="Delete this marker color?">{{ tr("common.delete") }}</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("marker_colors.none") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

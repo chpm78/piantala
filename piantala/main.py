@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, UTC
 
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
-from flask_login import login_required
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
 
 from .extensions import db
 from .forms import (
@@ -24,18 +24,35 @@ from .models import (
     HomeAssistantEntityCatalog,
     HomeAssistantSettings,
     LinkType,
+    MarkerColor,
     NodeActivity,
     NodeActivityImage,
     NodeExternalLink,
     NodeHomeAssistantEntity,
     NodePhoto,
     TranslationEntry,
+    DEFAULT_MARKER_COLOR_BY_NODE_TYPE,
 )
 from .utils import default_node_type, permission_required, save_uploaded_file
 from .translations import DEFAULT_LOCALE, DEFAULT_TRANSLATIONS, SUPPORTED_LOCALES
 
 
 bp = Blueprint("main", __name__)
+
+MARKER_ICON_SUGGESTIONS = [
+    ("mdi-sprout", "Sprout"),
+    ("mdi-flower", "Flower"),
+    ("mdi-flower-tulip", "Tulip"),
+    ("mdi-leaf", "Leaf"),
+    ("mdi-seed", "Seed"),
+    ("mdi-tree", "Tree"),
+    ("mdi-pine-tree", "Pine tree"),
+    ("mdi-grass", "Grass"),
+    ("mdi-corn", "Corn"),
+    ("mdi-shovel", "Shovel"),
+    ("mdi-water", "Water"),
+    ("mdi-sprinkler", "Sprinkler"),
+]
 
 
 def _settings() -> GardenSettings:
@@ -44,10 +61,11 @@ def _settings() -> GardenSettings:
 
 def _current_locale() -> str:
     supported_locales = {code for code, _label in SUPPORTED_LOCALES}
-    selected_locale = session.get("locale")
-    if selected_locale in supported_locales:
-        return selected_locale
-    return _settings().default_locale or DEFAULT_LOCALE
+    if current_user.is_authenticated:
+        selected_locale = getattr(current_user, "preferred_locale", None)
+        if selected_locale in supported_locales:
+            return selected_locale
+    return DEFAULT_LOCALE
 
 
 def _localized_labels() -> dict[str, str]:
@@ -80,6 +98,15 @@ def _flash_form_errors(form, fallback_message: str) -> None:
             flashed = True
     if not flashed:
         flash(fallback_message, "danger")
+
+
+def _default_marker_color_id(node_type: str, marker_colors: list[MarkerColor]) -> int | None:
+    desired_sort_order = DEFAULT_MARKER_COLOR_BY_NODE_TYPE.get(node_type)
+    if desired_sort_order is not None:
+        for marker_color in marker_colors:
+            if marker_color.sort_order == desired_sort_order:
+                return marker_color.id
+    return marker_colors[0].id if marker_colors else None
 
 
 @bp.route("/")
@@ -122,7 +149,6 @@ def map_settings():
         settings.welcome_text = form.welcome_text.data.strip()
         settings.color_scheme = form.color_scheme.data
         settings.font_family = form.font_family.data
-        settings.default_locale = form.default_locale.data
         settings.map_provider = form.map_provider.data
         settings.google_maps_center_lat = (
             float(form.google_maps_center_lat.data)
@@ -145,16 +171,6 @@ def map_settings():
         return redirect(url_for("main.index"))
 
     return render_template("map_settings.html", form=form, settings=settings)
-
-
-@bp.route("/language/<locale>")
-def set_locale(locale: str):
-    supported_locales = {code for code, _label in SUPPORTED_LOCALES}
-    if locale in supported_locales:
-        session["locale"] = locale
-    return redirect(request.referrer or url_for("main.index"))
-
-
 @bp.route("/nodes/new", methods=["GET", "POST"])
 @login_required
 @permission_required("manage_content")
@@ -262,6 +278,7 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         return redirect(url_for("main.index"))
 
     form = NodeForm(obj=node)
+    marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
     labels = _localized_labels()
     form.node_type.choices = [
         ("area", labels.get("node.type_area", "Area")),
@@ -282,6 +299,10 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         ("", labels.get("node.not_set", "Not set")),
         ("annual", labels.get("node.annual", "Annual")),
         ("perennial", labels.get("node.perennial", "Perennial")),
+    ]
+    form.marker_color_id.choices = [
+        (marker_color.id, f"{marker_color.name} ({marker_color.hex_value})")
+        for marker_color in marker_colors
     ]
     if request.method == "GET" and node is None:
         form.node_type.data = default_node_type(level)
@@ -304,10 +325,16 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             form.geo_lat.data = settings.google_maps_center_lat
         if level == 1 and use_geo_map and settings.google_maps_center_lng is not None:
             form.geo_lng.data = settings.google_maps_center_lng
-        if level > 1:
-            form.hotspot_color.data = "#2f6f4f"
+        default_marker_color_id = _default_marker_color_id(form.node_type.data, marker_colors)
+        if default_marker_color_id is not None:
+            form.marker_color_id.data = default_marker_color_id
         if level in {3, 4}:
             form.life_cycle.data = ""
+    elif request.method == "GET" and node is not None:
+        if form.marker_color_id.data is None:
+            default_marker_color_id = _default_marker_color_id(node.node_type, marker_colors)
+            if default_marker_color_id is not None:
+                form.marker_color_id.data = default_marker_color_id
 
     if form.validate_on_submit():
         if node is None:
@@ -334,7 +361,13 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         node.overlay_shape = form.overlay_shape.data
         node.overlay_width = float(form.overlay_width.data) if form.overlay_width.data is not None else 18.0
         node.overlay_height = float(form.overlay_height.data) if form.overlay_height.data is not None else 12.0
-        node.hotspot_color = form.hotspot_color.data.strip() if form.hotspot_color.data else "#2f6f4f"
+        marker_color = db.session.get(MarkerColor, form.marker_color_id.data)
+        node.marker_color = marker_color
+        node.hotspot_color = marker_color.hex_value if marker_color is not None else "#f28c28"
+        marker_icon = (form.marker_icon.data or "").strip()
+        if marker_icon and not marker_icon.startswith("mdi-"):
+            marker_icon = f"mdi-{marker_icon}"
+        node.marker_icon = marker_icon or None
         node.sort_order = form.sort_order.data or 0
         node.is_published = form.is_published.data
         node.map_x = (
@@ -374,6 +407,8 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         level=level,
         settings=settings,
         use_geo_map=use_geo_map,
+        marker_colors=marker_colors,
+        marker_icon_suggestions=MARKER_ICON_SUGGESTIONS,
     )
 
 

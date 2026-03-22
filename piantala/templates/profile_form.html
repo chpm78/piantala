@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("nav.profile") }}</p>
+        <h1>{{ tr("profile.title") }}</h1>
+        <p>{{ tr("profile.description") }}</p>
+        {% set item = current_user %}
+        {% include "_audit_meta.html" %}
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("users.language") }}</span>
+        {{ form.preferred_locale(class_="input") }}
+        {% for error in form.preferred_locale.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      {% if current_user.last_login_at %}
+        <div class="settings-section">
+          <strong>{{ tr("users.last_login") }}</strong>
+          <span>{{ current_user.last_login_at.strftime("%d/%m/%Y %H:%M") }}</span>
+        </div>
+      {% endif %}
+
+      <div class="form-actions full-width">
+        {{ form.submit(class_="button", value=tr("profile.save_language")) }}
+      </div>
+    </form>
+  </section>
+{% endblock %}

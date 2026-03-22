@@ -32,11 +32,15 @@
                 <td>
                   {% if values.get("en") %}
                     <textarea class="input translation-input" name="translation-{{ values['en'].id }}">{{ values["en"].text }}</textarea>
+                    {% set item = values["en"] %}
+                    {% include "_audit_meta.html" %}
                   {% endif %}
                 </td>
                 <td>
                   {% if values.get("it") %}
                     <textarea class="input translation-input" name="translation-{{ values['it'].id }}">{{ values["it"].text }}</textarea>
+                    {% set item = values["it"] %}
+                    {% include "_audit_meta.html" %}
                   {% endif %}
                 </td>
               </tr>

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.marker_colors") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("marker_colors.title") }}</h1>
+        <p>{{ tr("marker_colors.description") }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("marker_colors.name") }}</span>
+        {{ form.name(class_="input") }}
+      </label>
+
+      <label>
+        <span>{{ tr("marker_colors.hex_value") }}</span>
+        {{ form.hex_value(class_="input") }}
+      </label>
+
+      <label>
+        <span>{{ tr("marker_colors.sort_order") }}</span>
+        {{ form.sort_order(class_="input") }}
+      </label>
+
+      <div class="marker-preview-card full-width">
+        <span class="marker-preview-label">{{ tr("marker_colors.preview") }}</span>
+        <span class="color-swatch" style="--swatch-color: {{ form.hex_value.data or '#f28c28' }};"></span>
+      </div>
+
+      <div class="form-actions">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.marker_colors') }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

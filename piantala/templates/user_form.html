@@ -6,9 +6,18 @@
 
   <section class="panel">
     <div class="panel-header">
-      <p class="eyebrow">{{ tr("admin.heading") }}</p>
-      <h1>{{ tr("user_form.edit") if user else tr("user_form.create") }}</h1>
-      <p>{{ tr("user_form.assign_roles") }}</p>
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("user_form.edit") if user else tr("user_form.create") }}</h1>
+        <p>{{ tr("user_form.assign_roles") }}</p>
+        {% if user %}
+          {% set item = user %}
+          {% include "_audit_meta.html" %}
+          {% if user.last_login_at %}
+            <p class="audit-meta"><span>{{ tr("users.last_login") }}: {{ user.last_login_at.strftime("%d/%m/%Y %H:%M") }}</span></p>
+          {% endif %}
+        {% endif %}
+      </div>
     </div>
 
     <form method="post" class="form-grid two-col">
@@ -26,6 +35,14 @@
         <span>{{ tr("users.email") }}</span>
         {{ form.email(class_="input") }}
         {% for error in form.email.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("users.language") }}</span>
+        {{ form.preferred_locale(class_="input") }}
+        {% for error in form.preferred_locale.errors %}
           <small class="field-error">{{ error }}</small>
         {% endfor %}
       </label>
@@ -65,4 +82,40 @@
       </div>
     </form>
   </section>
+
+  {% if user %}
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">{{ tr("users.title") }}</p>
+          <h2>{{ tr("user_form.login_history") }}</h2>
+        </div>
+      </div>
+
+      {% if user.login_history %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>{{ tr("user_form.login_at") }}</th>
+                <th>{{ tr("user_form.login_ip") }}</th>
+                <th>{{ tr("user_form.login_user_agent") }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for login in user.login_history %}
+                <tr>
+                  <td>{{ login.logged_in_at.strftime("%d/%m/%Y %H:%M") }}</td>
+                  <td>{{ login.ip_address or "" }}</td>
+                  <td>{{ login.user_agent or "" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="muted">{{ tr("user_form.no_login_history") }}</p>
+      {% endif %}
+    </section>
+  {% endif %}
 {% endblock %}

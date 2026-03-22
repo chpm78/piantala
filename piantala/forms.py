@@ -19,6 +19,7 @@ from wtforms import (
 from wtforms.validators import DataRequired, Email, EqualTo, Length, NumberRange, Optional, URL, ValidationError
 
 from .models import User
+from .translations import SUPPORTED_LOCALES
 
 
 IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp"]
@@ -64,14 +65,6 @@ class MapSettingsForm(FlaskForm):
         ],
         validators=[DataRequired()],
     )
-    default_locale = SelectField(
-        "Default language",
-        choices=[
-            ("en", "English"),
-            ("it", "Italiano"),
-        ],
-        validators=[DataRequired()],
-    )
     map_image = FileField(
         "Map image",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
@@ -97,6 +90,11 @@ class MapSettingsForm(FlaskForm):
 class UserForm(FlaskForm):
     username = StringField("Username", validators=[DataRequired(), Length(max=80)])
     email = StringField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    preferred_locale = SelectField(
+        "Language",
+        choices=SUPPORTED_LOCALES,
+        validators=[DataRequired()],
+    )
     password = PasswordField(
         "Password",
         validators=[Optional(), Length(min=8, message="Use at least 8 characters.")],
@@ -193,6 +191,15 @@ class ActionForm(FlaskForm):
     submit = SubmitField("Submit")
 
 
+class ProfileLanguageForm(FlaskForm):
+    preferred_locale = SelectField(
+        "Language",
+        choices=SUPPORTED_LOCALES,
+        validators=[DataRequired()],
+    )
+    submit = SubmitField("Save language")
+
+
 class ActivityTypeForm(FlaskForm):
     name = StringField("Activity type name", validators=[DataRequired(), Length(max=120)])
     description = TextAreaField("Description", validators=[Optional(), Length(max=1000)])
@@ -205,6 +212,13 @@ class LinkTypeForm(FlaskForm):
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
     requires_label = BooleanField("Label required", default=False)
     submit = SubmitField("Save link type")
+
+
+class MarkerColorForm(FlaskForm):
+    name = StringField("Color name", validators=[DataRequired(), Length(max=64)])
+    hex_value = StringField("Hex color", validators=[DataRequired(), Length(max=16)])
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    submit = SubmitField("Save color")
 
 
 class NodeForm(FlaskForm):
@@ -295,6 +309,15 @@ class NodeForm(FlaskForm):
         validators=[Optional(), NumberRange(min=1, max=100)],
         default=12,
     )
+    marker_color_id = SelectField(
+        "Marker color",
+        coerce=int,
+        validators=[DataRequired()],
+    )
+    marker_icon = StringField(
+        "Marker icon",
+        validators=[Optional(), Length(max=64)],
+    )
     geo_lat = DecimalField(
         "Latitude",
         places=6,
@@ -304,11 +327,6 @@ class NodeForm(FlaskForm):
         "Longitude",
         places=6,
         validators=[Optional(), NumberRange(min=-180, max=180)],
-    )
-    hotspot_color = StringField(
-        "Hotspot color",
-        validators=[Optional(), Length(max=16)],
-        default="#2f6f4f",
     )
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
     is_published = BooleanField("Published", default=True)

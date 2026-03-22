@@ -42,6 +42,41 @@ function syncNodeTypeFields() {
   });
 }
 
+function syncMarkerPreview() {
+  const preview = document.getElementById("marker-preview");
+  if (!preview) {
+    return;
+  }
+
+  const nodeTypeSelect = document.querySelector("select[name='node_type']");
+  const markerColorSelect = document.getElementById("marker_color_id");
+  const markerIconInput = document.getElementById("marker_icon");
+  const previewIcon = document.getElementById("marker-preview-icon");
+
+  ["section", "bed", "plant", "custom", "area"].forEach((nodeType) => {
+    preview.classList.remove(`image-hotspot-node-${nodeType}`);
+  });
+  preview.classList.add(`image-hotspot-node-${nodeTypeSelect?.value || "custom"}`);
+
+  const selectedOption = markerColorSelect?.selectedOptions?.[0];
+  const match = selectedOption?.textContent?.match(/(#[0-9a-fA-F]{6})/);
+  preview.style.setProperty("--hotspot-color", match ? match[1] : "#f28c28");
+
+  const iconValue = (markerIconInput?.value || "").trim();
+  if (previewIcon) {
+    previewIcon.className = "image-hotspot-icon mdi";
+    if (iconValue) {
+      const normalizedIcon = iconValue.startsWith("mdi-") ? iconValue : `mdi-${iconValue}`;
+      preview.classList.add("image-hotspot-has-icon");
+      previewIcon.hidden = false;
+      previewIcon.classList.add(normalizedIcon);
+    } else {
+      preview.classList.remove("image-hotspot-has-icon");
+      previewIcon.hidden = true;
+    }
+  }
+}
+
 document.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-confirm]");
   if (deleteButton && !window.confirm(deleteButton.dataset.confirm)) {
@@ -85,6 +120,15 @@ document.addEventListener("change", (event) => {
 
   if (event.target.matches("select[name='node_type']")) {
     syncNodeTypeFields();
+    syncMarkerPreview();
+  }
+
+  if (event.target.matches("#marker_color_id")) {
+    syncMarkerPreview();
+  }
+
+  if (event.target.matches("#marker_icon")) {
+    syncMarkerPreview();
   }
 });
 
@@ -290,6 +334,7 @@ window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
 
 window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
+  syncMarkerPreview();
 };
 
 if (window.google?.maps) {

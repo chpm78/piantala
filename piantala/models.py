@@ -2,12 +2,41 @@ from __future__ import annotations
 
 from datetime import datetime, UTC
 
+from flask import has_request_context
 from flask_login import UserMixin
+from flask_login import current_user
 from sqlalchemy.exc import OperationalError
-from sqlalchemy import UniqueConstraint, inspect, text
+from sqlalchemy import UniqueConstraint, event, inspect, text
+from sqlalchemy.orm import Session
 
 from .extensions import db
 from .translations import DEFAULT_LOCALE, DEFAULT_TRANSLATIONS
+
+
+DEFAULT_MARKER_COLORS = [
+    ("Orange", "#f28c28"),
+    ("Red", "#d64545"),
+    ("Blue", "#2f6fed"),
+    ("Green", "#3e8b53"),
+    ("Yellow", "#e3b505"),
+    ("Purple", "#7b5fd6"),
+    ("Pink", "#d95d8f"),
+    ("Teal", "#1f9d8b"),
+    ("Cyan", "#22b8cf"),
+    ("Brown", "#8a5a44"),
+    ("Olive", "#708238"),
+    ("Lime", "#8ccf47"),
+    ("Indigo", "#4b5bdc"),
+    ("Violet", "#985eff"),
+    ("Slate", "#5f6b7a"),
+    ("Black", "#1f1f1f"),
+]
+
+DEFAULT_MARKER_COLOR_BY_NODE_TYPE = {
+    "plant": 0,
+    "bed": 1,
+    "section": 2,
+}
 
 
 user_roles = db.Table(
@@ -31,6 +60,11 @@ class Permission(db.Model):
     description = db.Column(db.String(255), nullable=False)
 
 
+class AuditMixin:
+    created_by_name = db.Column(db.String(80), nullable=True)
+    updated_by_name = db.Column(db.String(80), nullable=True)
+
+
 class Role(db.Model):
     __tablename__ = "roles"
 
@@ -46,20 +80,28 @@ class Role(db.Model):
     )
 
 
-class User(UserMixin, db.Model):
+class User(UserMixin, AuditMixin, db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False)
+    preferred_locale = db.Column(db.String(8), nullable=False, default=DEFAULT_LOCALE)
     password_hash = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
     roles = db.relationship(
         "Role",
         secondary=user_roles,
         lazy="joined",
         backref=db.backref("users", lazy="dynamic"),
+    )
+    login_history = db.relationship(
+        "UserLoginHistory",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by=lambda: db.desc(UserLoginHistory.logged_in_at),
     )
 
     def set_password(self, password: str) -> None:
@@ -83,7 +125,7 @@ class User(UserMixin, db.Model):
         return sorted(role.name for role in self.roles)
 
 
-class GardenSettings(db.Model):
+class GardenSettings(AuditMixin, db.Model):
     __tablename__ = "garden_settings"
 
     id = db.Column(db.Integer, primary_key=True, default=1)
@@ -118,7 +160,23 @@ class GardenSettings(db.Model):
         return settings
 
 
-class GardenNode(db.Model):
+class MarkerColor(AuditMixin, db.Model):
+    __tablename__ = "marker_colors"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True, nullable=False)
+    hex_value = db.Column(db.String(16), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+
+    nodes = db.relationship(
+        "GardenNode",
+        back_populates="marker_color",
+        order_by="GardenNode.title",
+    )
+
+
+class GardenNode(AuditMixin, db.Model):
     __tablename__ = "garden_nodes"
     __table_args__ = (
         UniqueConstraint("parent_id", "title", name="uq_node_parent_title"),
@@ -144,7 +202,9 @@ class GardenNode(db.Model):
     overlay_shape = db.Column(db.String(16), nullable=False, default="point")
     overlay_width = db.Column(db.Float, nullable=False, default=18.0)
     overlay_height = db.Column(db.Float, nullable=False, default=12.0)
+    marker_color_id = db.Column(db.Integer, db.ForeignKey("marker_colors.id"), nullable=True)
     hotspot_color = db.Column(db.String(16), nullable=False, default="#2f6f4f")
+    marker_icon = db.Column(db.String(64), nullable=True)
     geo_lat = db.Column(db.Float, nullable=True)
     geo_lng = db.Column(db.Float, nullable=True)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
@@ -162,6 +222,7 @@ class GardenNode(db.Model):
         remote_side=[id],
         back_populates="children",
     )
+    marker_color = db.relationship("MarkerColor", back_populates="nodes")
     children = db.relationship(
         "GardenNode",
         back_populates="parent",
@@ -252,11 +313,26 @@ class GardenNode(db.Model):
         return self.geo_lat is not None and self.geo_lng is not None
 
     @property
+    def marker_color_value(self) -> str:
+        if self.marker_color is not None and self.marker_color.hex_value:
+            return self.marker_color.hex_value
+        if self.hotspot_color:
+            return self.hotspot_color
+        return "#f28c28"
+
+    @property
+    def marker_icon_class(self) -> str | None:
+        icon = (self.marker_icon or "").strip()
+        if not icon:
+            return None
+        return icon
+
+    @property
     def is_dead(self) -> bool:
         return self.death_year is not None
 
 
-class NodePhoto(db.Model):
+class NodePhoto(AuditMixin, db.Model):
     __tablename__ = "node_photos"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -271,7 +347,7 @@ class NodePhoto(db.Model):
     node = db.relationship("GardenNode", back_populates="photos")
 
 
-class ActivityType(db.Model):
+class ActivityType(AuditMixin, db.Model):
     __tablename__ = "activity_types"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -287,7 +363,7 @@ class ActivityType(db.Model):
     )
 
 
-class NodeActivity(db.Model):
+class NodeActivity(AuditMixin, db.Model):
     __tablename__ = "node_activities"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -307,7 +383,7 @@ class NodeActivity(db.Model):
     )
 
 
-class NodeActivityImage(db.Model):
+class NodeActivityImage(AuditMixin, db.Model):
     __tablename__ = "node_activity_images"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -319,7 +395,7 @@ class NodeActivityImage(db.Model):
     activity = db.relationship("NodeActivity", back_populates="images")
 
 
-class LinkType(db.Model):
+class LinkType(AuditMixin, db.Model):
     __tablename__ = "link_types"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -385,7 +461,7 @@ class LinkType(db.Model):
                 entry.text = cleaned_value
 
 
-class NodeExternalLink(db.Model):
+class NodeExternalLink(AuditMixin, db.Model):
     __tablename__ = "node_external_links"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -407,7 +483,7 @@ class NodeExternalLink(db.Model):
         return self.url
 
 
-class NodeHomeAssistantEntity(db.Model):
+class NodeHomeAssistantEntity(AuditMixin, db.Model):
     __tablename__ = "node_home_assistant_entities"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -425,7 +501,7 @@ class NodeHomeAssistantEntity(db.Model):
     node = db.relationship("GardenNode", back_populates="ha_entities")
 
 
-class HomeAssistantSettings(db.Model):
+class HomeAssistantSettings(AuditMixin, db.Model):
     __tablename__ = "home_assistant_settings"
 
     id = db.Column(db.Integer, primary_key=True, default=1)
@@ -471,7 +547,7 @@ class HomeAssistantSettings(db.Model):
         return self.internal_url or self.base_url
 
 
-class HomeAssistantEntityCatalog(db.Model):
+class HomeAssistantEntityCatalog(AuditMixin, db.Model):
     __tablename__ = "home_assistant_entity_catalog"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -487,7 +563,7 @@ class HomeAssistantEntityCatalog(db.Model):
     seen_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
 
-class TranslationEntry(db.Model):
+class TranslationEntry(AuditMixin, db.Model):
     __tablename__ = "translation_entries"
     __table_args__ = (
         UniqueConstraint("locale", "key", name="uq_translation_locale_key"),
@@ -503,6 +579,44 @@ class TranslationEntry(db.Model):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+
+
+class UserLoginHistory(db.Model):
+    __tablename__ = "user_login_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    logged_in_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    ip_address = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(512), nullable=True)
+
+    user = db.relationship("User", back_populates="login_history")
+
+
+def _audit_actor_name() -> str:
+    try:
+        if has_request_context() and getattr(current_user, "is_authenticated", False):
+            username = (current_user.username or "").strip()
+            if username:
+                return username
+    except Exception:
+        pass
+    return "System"
+
+
+@event.listens_for(Session, "before_flush")
+def _stamp_audit_fields(session, flush_context, instances) -> None:
+    actor_name = _audit_actor_name()
+
+    for obj in session.new:
+        if isinstance(obj, AuditMixin):
+            if not obj.created_by_name:
+                obj.created_by_name = actor_name
+            obj.updated_by_name = actor_name
+
+    for obj in session.dirty:
+        if isinstance(obj, AuditMixin) and session.is_modified(obj, include_collections=True):
+            obj.updated_by_name = actor_name
 
 
 def ensure_seed_data() -> None:
@@ -553,6 +667,19 @@ def ensure_seed_data() -> None:
     if HomeAssistantSettings.query.first() is None:
         db.session.add(HomeAssistantSettings())
 
+    marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+    if not marker_colors:
+        for index, (name, hex_value) in enumerate(DEFAULT_MARKER_COLORS):
+            db.session.add(
+                MarkerColor(
+                    name=name,
+                    hex_value=hex_value,
+                    sort_order=index,
+                )
+            )
+        db.session.flush()
+        marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+
     default_activity_types = [
         ("Fertilization", "Fertilizer application and soil enrichment."),
         ("Plowing", "Soil preparation, plowing, or tilling work."),
@@ -601,6 +728,22 @@ def ensure_seed_data() -> None:
             if entry is None:
                 db.session.add(TranslationEntry(locale=locale, key=key, text=text_value))
 
+    marker_colors_by_sort = {
+        marker_color.sort_order: marker_color
+        for marker_color in marker_colors
+    }
+    default_marker_colors_by_type = {
+        node_type: marker_colors_by_sort.get(sort_order)
+        for node_type, sort_order in DEFAULT_MARKER_COLOR_BY_NODE_TYPE.items()
+    }
+
+    for node in GardenNode.query.all():
+        default_marker_color = default_marker_colors_by_type.get(node.node_type)
+        if node.marker_color_id is None and default_marker_color is not None:
+            node.marker_color = default_marker_color
+        if node.marker_color is not None:
+            node.hotspot_color = node.marker_color.hex_value
+
     db.session.commit()
 
 
@@ -608,7 +751,33 @@ def sync_schema() -> None:
     inspector = inspect(db.engine)
     existing_tables = set(inspector.get_table_names())
     statements = {
+        "users": {
+            "preferred_locale": (
+                "ALTER TABLE users "
+                f"ADD COLUMN preferred_locale VARCHAR(8) NOT NULL DEFAULT '{DEFAULT_LOCALE}'"
+            ),
+            "last_login_at": (
+                "ALTER TABLE users "
+                "ADD COLUMN last_login_at DATETIME"
+            ),
+            "created_by_name": (
+                "ALTER TABLE users "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE users "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+        },
         "garden_settings": {
+            "created_by_name": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "map_provider": (
                 "ALTER TABLE garden_settings "
                 "ADD COLUMN map_provider VARCHAR(32) NOT NULL DEFAULT 'image'"
@@ -638,7 +807,25 @@ def sync_schema() -> None:
                 "ADD COLUMN google_maps_zoom INTEGER NOT NULL DEFAULT 19"
             ),
         },
+        "marker_colors": {
+            "created_by_name": (
+                "ALTER TABLE marker_colors "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE marker_colors "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+        },
         "home_assistant_settings": {
+            "created_by_name": (
+                "ALTER TABLE home_assistant_settings "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE home_assistant_settings "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "internal_url": (
                 "ALTER TABLE home_assistant_settings "
                 "ADD COLUMN internal_url VARCHAR(255)"
@@ -650,7 +837,45 @@ def sync_schema() -> None:
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Piantala/0.1'"
             ),
         },
+        "activity_types": {
+            "created_by_name": (
+                "ALTER TABLE activity_types "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE activity_types "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+        },
+        "node_activities": {
+            "created_by_name": (
+                "ALTER TABLE node_activities "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE node_activities "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+        },
+        "node_activity_images": {
+            "created_by_name": (
+                "ALTER TABLE node_activity_images "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE node_activity_images "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+        },
         "garden_nodes": {
+            "created_by_name": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "quantity": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1"
@@ -695,16 +920,40 @@ def sync_schema() -> None:
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN hotspot_color VARCHAR(16) NOT NULL DEFAULT '#2f6f4f'"
             ),
+            "marker_color_id": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN marker_color_id INTEGER"
+            ),
+            "marker_icon": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN marker_icon VARCHAR(64)"
+            ),
             "geo_lat": "ALTER TABLE garden_nodes ADD COLUMN geo_lat FLOAT",
             "geo_lng": "ALTER TABLE garden_nodes ADD COLUMN geo_lng FLOAT",
         },
         "node_photos": {
+            "created_by_name": (
+                "ALTER TABLE node_photos "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE node_photos "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "taken_at": (
                 "ALTER TABLE node_photos "
                 "ADD COLUMN taken_at DATETIME"
             ),
         },
         "node_home_assistant_entities": {
+            "created_by_name": (
+                "ALTER TABLE node_home_assistant_entities "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE node_home_assistant_entities "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "show_on_image": (
                 "ALTER TABLE node_home_assistant_entities "
                 "ADD COLUMN show_on_image BOOLEAN NOT NULL DEFAULT 0"
@@ -713,15 +962,51 @@ def sync_schema() -> None:
             "map_y": "ALTER TABLE node_home_assistant_entities ADD COLUMN map_y FLOAT",
         },
         "link_types": {
+            "created_by_name": (
+                "ALTER TABLE link_types "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE link_types "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "requires_label": (
                 "ALTER TABLE link_types "
                 "ADD COLUMN requires_label BOOLEAN NOT NULL DEFAULT 0"
             ),
         },
         "node_external_links": {
+            "created_by_name": (
+                "ALTER TABLE node_external_links "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE node_external_links "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
             "link_type_id": (
                 "ALTER TABLE node_external_links "
                 "ADD COLUMN link_type_id INTEGER"
+            ),
+        },
+        "home_assistant_entity_catalog": {
+            "created_by_name": (
+                "ALTER TABLE home_assistant_entity_catalog "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE home_assistant_entity_catalog "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+        },
+        "translation_entries": {
+            "created_by_name": (
+                "ALTER TABLE translation_entries "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE translation_entries "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
             ),
         },
     }

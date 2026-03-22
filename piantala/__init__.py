@@ -2,7 +2,8 @@ from pathlib import Path
 
 import click
 from dotenv import load_dotenv
-from flask import Flask, request, session
+from flask import Flask, request
+from flask_login import current_user
 from sqlalchemy import inspect
 
 from .config import Config
@@ -85,7 +86,6 @@ def create_app() -> Flask:
         load_leaflet = False
         app_theme = "earth"
         app_font = "classic_serif"
-        default_locale = DEFAULT_LOCALE
         current_locale = DEFAULT_LOCALE
         localized_entries: dict[str, str] = {}
         fallback_entries: dict[str, str] = {}
@@ -96,15 +96,13 @@ def create_app() -> Flask:
                 load_leaflet = settings.map_provider in {"openstreetmap", "opentopomap"}
                 app_theme = settings.color_scheme
                 app_font = settings.font_family
-                default_locale = settings.default_locale or DEFAULT_LOCALE
 
             supported_codes = [code for code, _label in SUPPORTED_LOCALES]
-            session_locale = session.get("locale")
-            if session_locale in supported_codes:
-                current_locale = session_locale
+            if current_user.is_authenticated and current_user.preferred_locale in supported_codes:
+                current_locale = current_user.preferred_locale
             else:
                 browser_locale = request.accept_languages.best_match(supported_codes)
-                current_locale = browser_locale or default_locale or DEFAULT_LOCALE
+                current_locale = browser_locale or DEFAULT_LOCALE
 
             if inspect(db.engine).has_table(TranslationEntry.__tablename__):
                 localized_entries = {

@@ -51,11 +51,6 @@
           {{ form.font_family(class_="input") }}
         </label>
 
-        <label>
-          <span>{{ tr("map_settings.default_language") }}</span>
-          {{ form.default_locale(class_="input") }}
-        </label>
-
         <div class="theme-preview full-width">
           <div class="theme-preview-card theme-earth">
             <strong>Earth</strong>
@@ -147,6 +142,8 @@
 
       <div class="full-width">
         {{ form.submit(class_="button", value=tr("common.save")) }}
+        {% set item = settings %}
+        {% include "_audit_meta.html" %}
       </div>
     </form>
 

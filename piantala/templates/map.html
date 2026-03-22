@@ -108,7 +108,11 @@
               <h3>
                 <a class="card-title-link" href="{{ url_for('main.node_detail', node_id=location.id) }}">{{ location.title }}</a>
               </h3>
-              <p>{{ location.summary or tr("common.no_summary") }}</p>
+              {% set item = location %}
+              {% include "_audit_meta.html" %}
+              {% if location.summary %}
+                <p>{{ location.summary }}</p>
+              {% endif %}
               <a class="text-link" href="{{ url_for('main.node_detail', node_id=location.id) }}">{{ tr("map.open_location") }}</a>
             </div>
           </article>
