@@ -185,6 +185,40 @@ If an update goes wrong:
 3. restart with `docker compose up -d`
 4. if needed, restore the saved volumes from backup
 
+### Copy live data back from the remote Docker host
+
+If the remote instance has newer cultivations than your local checkout, export the Docker volumes on the server and then import them locally.
+
+On the remote server:
+
+```bash
+cd /path/to/piantala
+chmod +x scripts/export_docker_data.sh
+./scripts/export_docker_data.sh
+```
+
+This creates two archives in `./exports/`:
+
+- `piantala-instance-YYYYMMDD-HHMMSS.tgz`
+- `piantala-uploads-YYYYMMDD-HHMMSS.tgz`
+
+Copy them to your Mac with `scp`, for example:
+
+```bash
+scp root@your-server:/path/to/piantala/exports/piantala-instance-*.tgz ~/Downloads/
+scp root@your-server:/path/to/piantala/exports/piantala-uploads-*.tgz ~/Downloads/
+```
+
+Then on your local machine:
+
+```bash
+cd /Users/paolochiarabaglio/piantala
+chmod +x scripts/import_local_data.sh
+./scripts/import_local_data.sh ~/Downloads/piantala-instance-YYYYMMDD-HHMMSS.tgz ~/Downloads/piantala-uploads-YYYYMMDD-HHMMSS.tgz
+```
+
+The import script makes a local backup first, replaces `instance/piantala.db`, and optionally replaces `piantala/static/uploads/` if you pass the uploads archive too.
+
 ### Managing updates cleanly
 
 For open-source/public development, a simple and reliable workflow is:
