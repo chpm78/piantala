@@ -163,9 +163,22 @@ Useful options:
 ```bash
 PULL_CHANGES=0 ./scripts/update_docker.sh
 BACKUP_DIR=/root/piantala-backups ./scripts/update_docker.sh
+GIT_SYNC_MODE=reset ./scripts/update_docker.sh
 ```
 
 On deployment hosts, the script also sets `git config core.fileMode false` in the repo before pulling so executable-bit changes on helper scripts do not block updates.
+
+If the deployment checkout has diverged from GitHub, the script now stops with explicit recovery commands instead of a raw `git pull --ff-only` error. If you want the script to recover automatically in that case, run:
+
+```bash
+GIT_SYNC_MODE=reset ./scripts/update_docker.sh
+```
+
+That mode will:
+
+- create a safety branch like `deployment-backup-YYYYMMDD-HHMMSS`
+- reset the working branch to `origin/main`
+- continue with the normal backup and Docker update flow
 
 ### Backups before updates
 
