@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="panel detail-panel">
+  <section class="panel detail-panel" data-node-detail-root="true">
     <div class="breadcrumb-row">
       <a class="text-link" href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>
       {% for crumb in node.breadcrumbs() %}
@@ -55,7 +55,7 @@
 
     {% if available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3] %}
       <section class="panel">
-        <form method="get" class="inline-toggle">
+        <form method="get" class="inline-toggle" data-node-filters="true">
           {% if selected_photo %}
             <input type="hidden" name="photo" value="{{ selected_photo.id }}">
           {% endif %}
@@ -65,10 +65,11 @@
           {% if clone_year_range %}
             <input type="hidden" name="clone_year_range" value="{{ clone_year_range }}">
           {% endif %}
+          <input type="hidden" name="ha_range" value="{{ ha_history_range }}">
           {% if available_cultivation_years %}
             <label>
               <span>{{ tr("node.cultivation_year_view") }}</span>
-              <select name="year" class="input" onchange="this.form.submit()">
+              <select name="year" class="input" data-node-filter-year="true">
                 <option value="" {% if selected_year is none %}selected{% endif %}>{{ tr("node.all_years") }}</option>
                 {% for year_value in available_cultivation_years %}
                   <option value="{{ year_value }}" {% if selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
@@ -77,8 +78,16 @@
             </label>
           {% endif %}
           <label class="inline-check">
-            <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} onchange="this.form.submit()">
+            <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} data-node-filter-dead="true">
             <span>{{ tr("node.show_dead_plants") }}</span>
+          </label>
+          <label>
+            <span>{{ tr("node.overlay_display_mode") }}</span>
+            <select name="display" class="input" data-node-filter-display="true">
+              <option value="irrigation" {% if display_mode == "irrigation" %}selected{% endif %}>{{ tr("node.display_irrigation_only") }}</option>
+              <option value="cultivations" {% if display_mode == "cultivations" %}selected{% endif %}>{{ tr("node.display_cultivations_only") }}</option>
+              <option value="both" {% if display_mode == "both" %}selected{% endif %}>{{ tr("node.display_cultivations_and_irrigation") }}</option>
+            </select>
           </label>
         </form>
       </section>
@@ -114,6 +123,7 @@
               alt="{{ node.title }}"
             >
             {% for child in image_children %}
+              {% set child_hidden = (display_mode == 'irrigation') or (not show_dead_children and child.is_dead) or (child.life_cycle == 'annual' and selected_year is not none and child.effective_cultivation_year != selected_year) %}
               {% if child.overlay_shape == 'area' %}
                 <a
                   class="image-hotspot-area-overlay"
@@ -122,6 +132,12 @@
                   title="{{ child.title }}"
                   data-title="{{ child.title }}"
                   aria-label="{{ child.title }}"
+                  data-node-overlay="true"
+                  data-overlay-item="true"
+                  data-life-cycle="{{ child.life_cycle or '' }}"
+                  data-cultivation-year="{{ child.effective_cultivation_year or '' }}"
+                  data-is-dead="{{ 'true' if child.is_dead else 'false' }}"
+                  {% if child_hidden %}hidden{% endif %}
                 >
                   <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                     <polygon class="image-hotspot-area-polygon" points="{{ child.area_overlay_svg_points }}"></polygon>
@@ -134,15 +150,21 @@
                 {% for point_x, point_y in child.point_positions %}
                   <a
                     class="image-hotspot image-hotspot-point image-hotspot-node-{{ child.node_type or 'custom' }}{% if child.marker_icon_class %} image-hotspot-has-icon{% endif %}"
-                    href="{{ url_for('main.node_detail', node_id=child.id) }}"
-                    style="left: {{ point_x }}%; top: {{ point_y }}%; --hotspot-color: {{ child.marker_color_value }};"
-                    title="{{ child.title }}"
-                    data-title="{{ child.title }}"
-                    aria-label="{{ child.title }}"
-                  >
-                    {% if child.marker_icon_class %}
-                      <span class="image-hotspot-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
-                    {% endif %}
+                  href="{{ url_for('main.node_detail', node_id=child.id) }}"
+                  style="left: {{ point_x }}%; top: {{ point_y }}%; --hotspot-color: {{ child.marker_color_value }};"
+                  title="{{ child.title }}"
+                  data-title="{{ child.title }}"
+                  aria-label="{{ child.title }}"
+                  data-node-overlay="true"
+                  data-overlay-item="true"
+                  data-life-cycle="{{ child.life_cycle or '' }}"
+                  data-cultivation-year="{{ child.effective_cultivation_year or '' }}"
+                  data-is-dead="{{ 'true' if child.is_dead else 'false' }}"
+                  {% if child_hidden %}hidden{% endif %}
+                >
+                  {% if child.marker_icon_class %}
+                    <span class="image-hotspot-icon mdi {{ child.marker_icon_class }}" aria-hidden="true"></span>
+                  {% endif %}
                   </a>
                 {% endfor %}
               {% endif %}
@@ -157,7 +179,54 @@
                 style="left: {{ entity.map_x }}%; top: {{ entity.map_y }}%;"
                 data-title="{{ entity_overlay_title }}"
                 aria-label="{{ entity_overlay_title }}"
+                data-overlay-item="true"
+                data-ha-chart-open="true"
+                data-entity-id="{{ entity.entity_id }}"
+                data-entity-label="{{ entity.label }}"
+                tabindex="0"
               ></div>
+            {% endfor %}
+            {% for zone in image_irrigation_zones %}
+              {% set catalog_entry = ha_catalog_by_entity_id.get(zone.entity_id) %}
+              {% set zone_value = (catalog_entry.state if catalog_entry else zone.current_value) or '' %}
+              {% set zone_unit = catalog_entry.unit_of_measurement if catalog_entry and catalog_entry.unit_of_measurement else zone.unit_of_measurement %}
+              {% set zone_overlay_title = zone.name ~ ((': ' ~ zone_value ~ ((' ' ~ zone_unit) if zone_unit else '')) if zone_value else '') %}
+              <div
+                class="image-hotspot-area-overlay image-irrigation-zone-overlay"
+                style="{{ zone.area_overlay_style }}"
+                data-title="{{ zone_overlay_title }}"
+                aria-label="{{ zone_overlay_title }}"
+                data-irrigation-zone="true"
+                data-overlay-item="true"
+                {% if display_mode == 'cultivations' %}hidden{% endif %}
+              >
+                <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  <defs>
+                    <pattern id="irrigation-pattern-{{ zone.id }}" patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(35)">
+                      {% if zone.texture_pattern_key == "diagonal" %}
+                        <line x1="0" y1="14" x2="14" y2="0" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.45" stroke-width="3"></line>
+                      {% elif zone.texture_pattern_key == "crosshatch" %}
+                        <line x1="0" y1="14" x2="14" y2="0" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                        <line x1="0" y1="0" x2="14" y2="14" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                      {% elif zone.texture_pattern_key == "dots" %}
+                        <circle cx="3" cy="3" r="1.8" fill="{{ zone.overlay_color_value }}" fill-opacity="0.45"></circle>
+                        <circle cx="10.5" cy="10.5" r="1.8" fill="{{ zone.overlay_color_value }}" fill-opacity="0.45"></circle>
+                      {% elif zone.texture_pattern_key == "grid" %}
+                        <line x1="0" y1="0" x2="0" y2="14" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        <line x1="7" y1="0" x2="7" y2="14" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        <line x1="0" y1="0" x2="14" y2="0" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        <line x1="0" y1="7" x2="14" y2="7" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                      {% elif zone.texture_pattern_key == "horizontal" %}
+                        <line x1="0" y1="3" x2="14" y2="3" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                        <line x1="0" y1="10" x2="14" y2="10" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                      {% endif %}
+                    </pattern>
+                  </defs>
+                  <polygon class="image-irrigation-zone-polygon" points="{{ zone.area_overlay_svg_points }}" fill="{{ zone.overlay_color_value }}" fill-opacity="0.14" stroke="{{ zone.overlay_color_value }}"></polygon>
+                  <polygon class="image-irrigation-zone-pattern" points="{{ zone.area_overlay_svg_points }}" fill="url(#irrigation-pattern-{{ zone.id }})"></polygon>
+                </svg>
+                <span class="image-irrigation-zone-icon mdi mdi-sprinkler" aria-hidden="true" style="color: {{ zone.overlay_color_value }};"></span>
+              </div>
             {% endfor %}
           </div>
         </div>
@@ -166,7 +235,7 @@
             {% for photo in ordered_photos %}
               <a
                 class="timeline-chip {% if selected_photo and selected_photo.id == photo.id %}is-active{% endif %}"
-                href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None) }}"
+                href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None, display=display_mode if display_mode != 'cultivations' else None, ha_range=ha_history_range if ha_history_range != '1d' else None) }}"
               >
                 <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
                 <span>{{ photo.taken_at.strftime("%b %Y") }}</span>
@@ -174,9 +243,7 @@
             {% endfor %}
           </div>
         {% endif %}
-        {% if not image_children and not image_entities %}
-          <p class="hint">{{ tr("node.overlays_empty") }}</p>
-        {% endif %}
+        <p class="hint" data-overlay-empty="true" {% if image_children or image_entities or image_irrigation_zones %}hidden{% endif %}>{{ tr("node.overlays_empty") }}</p>
       </div>
     {% endif %}
 
@@ -201,10 +268,10 @@
       <p>{{ tr("node.children_help") }}</p>
     </div>
 
-    {% if visible_children %}
-      <div class="card-grid">
+    <div class="card-grid">
         {% for child in visible_children %}
-          <article class="card {% if child.is_dead %}is-dead{% endif %}">
+          {% set child_hidden = (display_mode == 'irrigation') or (not show_dead_children and child.is_dead) or (child.life_cycle == 'annual' and selected_year is not none and child.effective_cultivation_year != selected_year) %}
+          <article class="card {% if child.is_dead %}is-dead{% endif %}" data-node-child-card="true" data-life-cycle="{{ child.life_cycle or '' }}" data-cultivation-year="{{ child.effective_cultivation_year or '' }}" data-is-dead="{{ 'true' if child.is_dead else 'false' }}" {% if child_hidden %}hidden{% endif %}>
             {% if child.display_image %}
               <a class="card-media-link" href="{{ url_for('main.node_detail', node_id=child.id) }}">
                 <div class="card-image-shell" style="{{ child.image_display_style }}">
@@ -246,12 +313,10 @@
           </article>
         {% endfor %}
       </div>
-    {% else %}
-      <div class="empty-state">
+      <div class="empty-state" data-children-empty="true" {% if visible_children %}hidden{% endif %}>
         <h3>{{ tr("node.no_children") }}</h3>
         <p>{{ tr("node.no_children_text") }}</p>
       </div>
-    {% endif %}
   </section>
 
   {% if cultivation_history %}
@@ -285,12 +350,10 @@
         {% if selected_photo %}
           <input type="hidden" name="photo" value="{{ selected_photo.id }}">
         {% endif %}
-        {% if selected_year %}
-          <input type="hidden" name="year" value="{{ selected_year }}">
-        {% endif %}
-        {% if show_dead_children %}
-          <input type="hidden" name="show_dead" value="1">
-        {% endif %}
+        <input type="hidden" name="year" value="{{ selected_year or '' }}" data-node-filter-proxy="year">
+        <input type="hidden" name="show_dead" value="{{ '1' if show_dead_children else '' }}" data-node-filter-proxy="show_dead">
+        <input type="hidden" name="display" value="{{ display_mode }}" data-node-filter-proxy="display">
+        <input type="hidden" name="ha_range" value="{{ ha_history_range }}">
         <label>
           <span>{{ tr("node.source_section") }}</span>
           <select name="clone_section_id" class="input">
@@ -550,9 +613,44 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>{{ tr("node.home_assistant") }}</h2>
-        <p>{{ tr("node.entity_help") }}</p>
+        <div>
+          <h2>{{ tr("node.home_assistant") }}</h2>
+          <p>{{ tr("node.entity_help") }}</p>
+        </div>
+        {% if node.ha_entities %}
+          <form method="get" class="inline-toggle" data-ha-history-controls="true" data-node-id="{{ node.id }}">
+            {% if selected_photo %}
+              <input type="hidden" name="photo" value="{{ selected_photo.id }}">
+            {% endif %}
+            {% if selected_year is not none %}
+              <input type="hidden" name="year" value="{{ selected_year }}">
+            {% endif %}
+            {% if show_dead_children %}
+              <input type="hidden" name="show_dead" value="1">
+            {% endif %}
+            {% if display_mode != 'cultivations' %}
+              <input type="hidden" name="display" value="{{ display_mode }}">
+            {% endif %}
+            {% if selected_source_section_id %}
+              <input type="hidden" name="clone_section_id" value="{{ selected_source_section_id }}">
+            {% endif %}
+            {% if clone_year_range %}
+              <input type="hidden" name="clone_year_range" value="{{ clone_year_range }}">
+            {% endif %}
+            <label>
+              <span>{{ tr("node.entity_history_range") }}</span>
+              <select name="ha_range" class="input" data-ha-history-range="true">
+                <option value="1d" {% if ha_history_range == '1d' %}selected{% endif %}>{{ tr("node.entity_history_1d") }}</option>
+                <option value="7d" {% if ha_history_range == '7d' %}selected{% endif %}>{{ tr("node.entity_history_7d") }}</option>
+              </select>
+            </label>
+          </form>
+        {% endif %}
       </div>
+
+      {% if ha_history_error %}
+        <p class="muted">{{ tr("node.entity_history_error") }} {{ ha_history_error }}</p>
+      {% endif %}
 
       {% if node.ha_entities %}
         <div class="stack-list">
@@ -562,7 +660,6 @@
                 <strong>{{ entity.label }}</strong>
                 {% set item = entity %}
                 {% include "_audit_meta.html" %}
-                <p>{{ entity.entity_id }}</p>
                 {% set catalog_entry = ha_catalog_by_entity_id.get(entity.entity_id) %}
                 <p>
                   {{ tr("node.value") }}:
@@ -571,23 +668,44 @@
                     {{ catalog_entry.unit_of_measurement if catalog_entry else entity.unit_of_measurement }}
                   {% endif %}
                 </p>
-                <p>{{ tr("node.shown") }}: {{ tr("node.yes") if entity.show_on_image else tr("node.no") }}</p>
-                {% if entity.show_on_image and entity.map_x is not none and entity.map_y is not none %}
-                  <p>{{ tr("node.position") }}: X {{ "%.1f"|format(entity.map_x) }}%, Y {{ "%.1f"|format(entity.map_y) }}%</p>
-                {% endif %}
                 {% if entity.notes %}
                   <p>{{ entity.notes }}</p>
                 {% endif %}
-              </div>
-              {% if current_user.has_permission('manage_content') %}
-                <div class="stack-actions">
-                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_entity', entity_id=entity.id) }}">{{ tr("common.edit") }}</a>
-                  <form method="post" action="{{ url_for('main.delete_entity', entity_id=entity.id) }}">
-                    {{ delete_form.hidden_tag() }}
-                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this entity?">{{ tr("common.delete") }}</button>
-                  </form>
+                {% set history_chart = ha_history_charts.get(entity.entity_id) %}
+                <div
+                  class="entity-history-block"
+                  data-ha-chart-panel="true"
+                  data-entity-id="{{ entity.entity_id }}"
+                  data-entity-label="{{ entity.label }}"
+                  data-entity-unit="{{ (catalog_entry.unit_of_measurement if catalog_entry else entity.unit_of_measurement) or '' }}"
+                  data-label-value="{{ tr('node.value') }}"
+                  data-label-min="{{ tr('node.history_min') }}"
+                  data-label-max="{{ tr('node.history_max') }}"
+                  data-no-data-text="{{ tr('node.entity_history_no_data') }}"
+                  data-chart-aria-label="{{ tr('node.entity_history_chart') }}"
+                  data-open-chart-text="{{ tr('node.open_entity_chart') }}"
+                >
+                  <div
+                    class="entity-history-chart-shell"
+                    {% if history_chart %}
+                      role="button"
+                      tabindex="0"
+                      data-ha-chart-open="true"
+                      data-entity-id="{{ entity.entity_id }}"
+                      data-entity-label="{{ entity.label }}"
+                    {% endif %}
+                    {% if history_chart %}
+                      data-ha-chart-data='{{ history_chart | tojson }}'
+                    {% else %}
+                      hidden
+                    {% endif %}
+                  ></div>
+                  {% if history_chart %}
+                  {% elif not ha_history_error %}
+                    <p class="muted" data-ha-chart-empty="true">{{ tr("node.entity_history_no_data") }}</p>
+                  {% endif %}
                 </div>
-              {% endif %}
+              </div>
             </div>
           {% endfor %}
         </div>
@@ -595,70 +713,60 @@
         <p class="muted">{{ tr("node.no_entities") }}</p>
       {% endif %}
 
-      {% if current_user.has_permission('manage_content') %}
-        <form method="post" action="{{ url_for('main.add_entity', node_id=node.id) }}" class="form-grid">
-          {{ entity_form.hidden_tag() }}
-          {% if ha_is_configured and ha_catalog_count > 0 %}
-            <label class="full-width">
-              <span>{{ tr("node.discovered_entity") }}</span>
-              {{ entity_form.discovered_entity(class_="input") }}
-            </label>
-          {% elif ha_is_configured %}
-            <div class="empty-state full-width">
-              <h3>{{ tr("node.no_entities") }}</h3>
-              <p>{{ tr("node.entity_catalog_empty") }}</p>
-            </div>
-          {% else %}
-            <div class="empty-state full-width">
-              <h3>{{ tr("node.entity_no_config_title") }}</h3>
-              <p>{{ tr("node.entity_not_configured") }}</p>
-            </div>
-          {% endif %}
-          <label>
-            <span>{{ tr("node.friendly_name") }}</span>
-            {{ entity_form.label(class_="input") }}
-          </label>
-          <label class="inline-check">
-            {{ entity_form.show_on_image() }}
-            <span>{{ tr("node.show_on_image") }}</span>
-          </label>
-          <label>
-            <span>{{ tr("node.image_x") }}</span>
-            {{ entity_form.map_x(class_="input", id="entity_map_x") }}
-          </label>
-          <label>
-            <span>{{ tr("node.image_y") }}</span>
-            {{ entity_form.map_y(class_="input", id="entity_map_y") }}
-          </label>
-          <label class="full-width">
-            <span>{{ tr("node.notes_short") }}</span>
-            {{ entity_form.notes(class_="input input-textarea") }}
-          </label>
-          {% if current_image_path %}
-            <div class="inline-map-help full-width">
-              <h3>{{ tr("node.entity_helper_title") }}</h3>
-              <p>{{ tr("node.entity_helper_text") }}</p>
-              <div
-                class="garden-map image-overlay"
-                data-coordinate-picker="image"
-                data-x-input="entity_map_x"
-                data-y-input="entity_map_y"
-                data-feedback-target="entity-picker-feedback"
-              >
-                <div class="image-stage image-stage-helper">
-                  <img
-                    class="stage-image"
-                    src="{{ url_for('static', filename=current_image_path) }}"
-                    alt="{{ node.title }}"
-                  >
-                </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ tr("node.irrigation_zones") }}</h2>
+        <p>{{ tr("node.irrigation_zones_help") }}</p>
+      </div>
+
+      {% if irrigation_zones %}
+        <div class="stack-list">
+            {% for zone in irrigation_zones %}
+            <div class="list-item vertical">
+              <div class="list-copy">
+                <strong>{{ zone.name }}</strong>
+                {% set item = zone %}
+                {% include "_audit_meta.html" %}
+                {% if zone.entity_id %}
+                  <p>{{ zone.entity_id }}</p>
+                {% endif %}
               </div>
-              <p id="entity-picker-feedback" class="hint">Click the image to estimate entity marker coordinates.</p>
             </div>
-          {% endif %}
-          {{ entity_form.submit(class_="button", value=tr("common.save"), disabled=not ha_is_configured or ha_catalog_count == 0) }}
-        </form>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">{{ tr("node.no_irrigation_zones") }}</p>
       {% endif %}
     </article>
   </section>
+
+  <div class="ha-chart-modal" data-ha-chart-modal hidden>
+    <div class="ha-chart-backdrop" data-ha-chart-close></div>
+    <section class="ha-chart-dialog panel">
+      <div class="panel-header">
+        <div>
+          <h2 data-ha-chart-modal-title>{{ tr("node.entity_history_chart") }}</h2>
+          <p data-ha-chart-modal-subtitle></p>
+        </div>
+        <div class="form-actions">
+          <label class="ha-chart-modal-range">
+            <span>{{ tr("node.entity_history_range") }}</span>
+            <select class="input" data-ha-chart-modal-range>
+              <option value="1d" {% if ha_history_range == '1d' %}selected{% endif %}>{{ tr("node.entity_history_1d") }}</option>
+              <option value="7d" {% if ha_history_range == '7d' %}selected{% endif %}>{{ tr("node.entity_history_7d") }}</option>
+            </select>
+          </label>
+          <button type="button" class="button button-secondary button-small" data-ha-chart-pan-left>{{ tr("node.chart_pan_left") }}</button>
+          <button type="button" class="button button-secondary button-small" data-ha-chart-pan-right>{{ tr("node.chart_pan_right") }}</button>
+          <button type="button" class="button button-secondary button-small" data-ha-chart-zoom-out>{{ tr("node.chart_zoom_out") }}</button>
+          <button type="button" class="button button-secondary button-small" data-ha-chart-zoom-reset>{{ tr("node.chart_zoom_reset") }}</button>
+          <button type="button" class="button button-secondary button-small" data-ha-chart-zoom-in>{{ tr("node.chart_zoom_in") }}</button>
+          <button type="button" class="button button-secondary button-small" data-ha-chart-close>{{ tr("common.close") }}</button>
+        </div>
+      </div>
+      <div class="ha-chart-modal-body" data-ha-chart-modal-body></div>
+    </section>
+  </div>
 {% endblock %}

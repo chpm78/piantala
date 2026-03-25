@@ -716,6 +716,635 @@ document.addEventListener("change", (event) => {
 });
 
 /**
+ * Initialize live filters on the node detail page without full page reloads.
+ */
+function initNodeDetailFilters() {
+  const filtersForm = document.querySelector("[data-node-filters='true']");
+  if (!filtersForm || filtersForm.dataset.filtersReady === "true") {
+    return;
+  }
+
+  const yearSelect = filtersForm.querySelector("[data-node-filter-year='true']");
+  const showDeadInput = filtersForm.querySelector("[data-node-filter-dead='true']");
+  const displayModeInput = filtersForm.querySelector("[data-node-filter-display='true']");
+  const childCards = Array.from(document.querySelectorAll("[data-node-child-card='true']"));
+  const childOverlays = Array.from(document.querySelectorAll("[data-node-overlay='true']"));
+  const irrigationOverlays = Array.from(document.querySelectorAll("[data-irrigation-zone='true']"));
+  const overlayEmpty = document.querySelector("[data-overlay-empty='true']");
+  const childrenEmpty = document.querySelector("[data-children-empty='true']");
+  const filterProxies = Array.from(document.querySelectorAll("[data-node-filter-proxy]"));
+
+  const matchesChildFilters = (element) => {
+    const isDead = element.dataset.isDead === "true";
+    const lifeCycle = element.dataset.lifeCycle || "";
+    const cultivationYear = element.dataset.cultivationYear || "";
+    const showDead = showDeadInput?.checked ?? false;
+    const selectedYear = yearSelect?.value || "";
+
+    if (!showDead && isDead) {
+      return false;
+    }
+
+    if (lifeCycle === "annual" && selectedYear && cultivationYear !== selectedYear) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const updateUrl = () => {
+    const url = new URL(window.location.href);
+    if (yearSelect?.value) {
+      url.searchParams.set("year", yearSelect.value);
+    } else {
+      url.searchParams.delete("year");
+    }
+
+    if (showDeadInput?.checked) {
+      url.searchParams.set("show_dead", "1");
+    } else {
+      url.searchParams.delete("show_dead");
+    }
+
+    if ((displayModeInput?.value || "cultivations") !== "cultivations") {
+      url.searchParams.set("display", displayModeInput.value);
+    } else {
+      url.searchParams.delete("display");
+    }
+    url.searchParams.delete("show_irrigation");
+
+    window.history.replaceState({}, "", url);
+  };
+
+  const syncProxyInputs = () => {
+    filterProxies.forEach((input) => {
+      if (input.dataset.nodeFilterProxy === "year") {
+        input.value = yearSelect?.value || "";
+      }
+      if (input.dataset.nodeFilterProxy === "show_dead") {
+        input.value = showDeadInput?.checked ? "1" : "";
+      }
+      if (input.dataset.nodeFilterProxy === "display") {
+        input.value = displayModeInput?.value || "cultivations";
+      }
+    });
+  };
+
+  const applyFilters = () => {
+    const displayMode = displayModeInput?.value || "cultivations";
+    const showCultivations = displayMode !== "irrigation";
+    const showIrrigation = displayMode !== "cultivations";
+
+    childCards.forEach((card) => {
+      card.hidden = !showCultivations || !matchesChildFilters(card);
+    });
+
+    childOverlays.forEach((overlay) => {
+      overlay.hidden = !showCultivations || !matchesChildFilters(overlay);
+    });
+
+    irrigationOverlays.forEach((overlay) => {
+      overlay.hidden = !showIrrigation;
+    });
+
+    if (childrenEmpty) {
+      childrenEmpty.hidden = childCards.some((card) => !card.hidden);
+    }
+
+    if (overlayEmpty) {
+      const visibleOverlayItem = Array.from(document.querySelectorAll("[data-overlay-item='true']")).some(
+        (item) => !item.hidden,
+      );
+      overlayEmpty.hidden = visibleOverlayItem;
+    }
+
+    syncProxyInputs();
+    updateUrl();
+  };
+
+  filtersForm.dataset.filtersReady = "true";
+  [yearSelect, showDeadInput, displayModeInput].forEach((input) => {
+    input?.addEventListener("change", applyFilters);
+  });
+
+  applyFilters();
+}
+
+/**
+ * Format a timestamp for the chart x-axis.
+ *
+ * @param {string} isoValue ISO timestamp string.
+ * @param {string} rangeKey Selected history range key.
+ * @returns {string}
+ */
+function formatHistoryTimestamp(isoValue, rangeKey) {
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return rangeKey === "7d"
+    ? date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })
+    : date.toLocaleString([], { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Format a numeric chart label.
+ *
+ * @param {number} value Numeric value to format.
+ * @returns {string}
+ */
+function formatHistoryNumber(value) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  if (Math.abs(value - Math.round(value)) < 1e-9) {
+    return String(Math.round(value));
+  }
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+/**
+ * Escape HTML special characters for injected chart labels.
+ *
+ * @param {string} value Raw string value.
+ * @returns {string}
+ */
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+/**
+ * Build a chart SVG and metadata from raw Home Assistant history samples.
+ *
+ * @param {object} payload Chart payload returned by the backend.
+ * @param {object} options Rendering options.
+ * @param {number} [options.zoomFactor] Horizontal zoom factor for latest samples.
+ * @param {number} [options.panOffset] Number of trailing samples to skip after zoom.
+ * @param {string} [options.unit] Unit of measurement for the series.
+ * @param {string} [options.ariaLabel] Accessible label for the chart.
+ * @returns {{metaHtml: string, chartHtml: string, panState: {visibleCount: number, maxPanOffset: number, panOffset: number}}|null}
+ */
+function buildEntityHistoryChart(payload, options = {}) {
+  const samples = Array.isArray(payload?.samples) ? payload.samples : [];
+  if (!samples.length) {
+    return null;
+  }
+
+  const zoomFactor = Math.max(1, Number.parseInt(options.zoomFactor || 1, 10) || 1);
+  const total = samples.length;
+  const visibleCount = Math.max(2, Math.ceil(total / zoomFactor));
+  const maxPanOffset = Math.max(0, total - visibleCount);
+  const panOffset = Math.max(0, Math.min(maxPanOffset, Number.parseInt(options.panOffset || 0, 10) || 0));
+  const endIndex = total - panOffset;
+  const startIndex = Math.max(0, endIndex - visibleCount);
+  const visibleSamples = samples.slice(startIndex, endIndex);
+  if (visibleSamples.length < 2) {
+    return null;
+  }
+
+  const width = 640;
+  const height = 260;
+  const padLeft = 56;
+  const padRight = 18;
+  const padTop = 16;
+  const padBottom = 34;
+  const chartWidth = width - padLeft - padRight;
+  const chartHeight = height - padTop - padBottom;
+
+  const parsed = visibleSamples
+    .map((sample) => ({
+      ts: new Date(sample.ts),
+      value: Number(sample.value),
+    }))
+    .filter((sample) => !Number.isNaN(sample.ts.getTime()) && Number.isFinite(sample.value));
+
+  if (parsed.length < 2) {
+    return null;
+  }
+
+  const minValue = Math.min(...parsed.map((sample) => sample.value));
+  const maxValue = Math.max(...parsed.map((sample) => sample.value));
+  const paddedMin = minValue === maxValue ? minValue - 1 : minValue - ((maxValue - minValue) * 0.08);
+  const paddedMax = minValue === maxValue ? maxValue + 1 : maxValue + ((maxValue - minValue) * 0.08);
+  const valueSpan = Math.max(paddedMax - paddedMin, 1);
+  const startTime = parsed[0].ts.getTime();
+  const endTime = parsed[parsed.length - 1].ts.getTime();
+  const timeSpan = Math.max(endTime - startTime, 1);
+
+  const coordinates = parsed.map((sample) => {
+    const x = padLeft + (((sample.ts.getTime() - startTime) / timeSpan) * chartWidth);
+    const y = padTop + (chartHeight - (((sample.value - paddedMin) / valueSpan) * chartHeight));
+    return { x, y, value: sample.value, ts: sample.ts };
+  });
+
+  const linePoints = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
+  const areaPoints = `${padLeft},${height - padBottom} ${linePoints} ${coordinates[coordinates.length - 1].x.toFixed(2)},${height - padBottom}`;
+  const latest = coordinates[coordinates.length - 1];
+  const unit = options.unit ? ` ${escapeHtml(options.unit)}` : "";
+
+  const yTicks = [0, 0.5, 1].map((fraction) => {
+    const value = paddedMax - (valueSpan * fraction);
+    const y = padTop + (chartHeight * fraction);
+    return { label: formatHistoryNumber(value), y };
+  });
+
+  const xTicks = [0, 0.5, 1].map((fraction) => {
+    const index = Math.min(parsed.length - 1, Math.round((parsed.length - 1) * fraction));
+    const point = coordinates[index];
+    return { label: formatHistoryTimestamp(parsed[index].ts.toISOString(), payload.range_key), x: point.x };
+  });
+
+  const metaHtml = `
+    <div class="entity-history-meta">
+      <span>${escapeHtml(options.valueLabel || "Value")}: ${escapeHtml(formatHistoryNumber(latest.value))}${unit}</span>
+      <span>${escapeHtml(options.minLabel || "Min")}: ${escapeHtml(formatHistoryNumber(minValue))}</span>
+      <span>${escapeHtml(options.maxLabel || "Max")}: ${escapeHtml(formatHistoryNumber(maxValue))}</span>
+    </div>
+  `;
+
+  const chartHtml = `
+    <svg class="entity-history-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(options.ariaLabel || "History chart")}">
+      ${yTicks.map((tick) => `
+        <line x1="${padLeft}" y1="${tick.y.toFixed(2)}" x2="${width - padRight}" y2="${tick.y.toFixed(2)}" class="entity-history-grid-line"></line>
+        <text x="${padLeft - 8}" y="${(tick.y + 4).toFixed(2)}" text-anchor="end" class="entity-history-tick">${escapeHtml(tick.label)}</text>
+      `).join("")}
+      <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" class="entity-history-axis-line"></line>
+      <line x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}" class="entity-history-axis-line"></line>
+      <polyline class="entity-history-area" points="${areaPoints}"></polyline>
+      <polyline class="entity-history-line" points="${linePoints}"></polyline>
+      <circle class="entity-history-dot" cx="${latest.x.toFixed(2)}" cy="${latest.y.toFixed(2)}" r="4"></circle>
+      ${xTicks.map((tick) => `
+        <text x="${tick.x.toFixed(2)}" y="${height - 8}" text-anchor="middle" class="entity-history-tick">${escapeHtml(tick.label)}</text>
+      `).join("")}
+    </svg>
+  `;
+
+  return {
+    metaHtml,
+    chartHtml,
+    panState: {
+      visibleCount,
+      maxPanOffset,
+      panOffset,
+    },
+  };
+}
+
+/**
+ * Render one entity history panel from backend payload.
+ *
+ * @param {HTMLElement} panel Entity history panel element.
+ * @param {object|null} payload Chart payload for the entity.
+ * @param {number} [zoomFactor] Horizontal zoom factor.
+ */
+function renderEntityHistoryPanel(panel, payload, zoomFactor = 1) {
+  const shell = panel.querySelector(".entity-history-chart-shell");
+  let empty = panel.querySelector("[data-ha-chart-empty='true']");
+  if (!shell) {
+    return;
+  }
+
+  if (!empty) {
+    empty = document.createElement("p");
+    empty.className = "muted";
+    empty.dataset.haChartEmpty = "true";
+    empty.textContent = panel.dataset.noDataText || "";
+    panel.appendChild(empty);
+  }
+
+  if (!payload) {
+    shell.innerHTML = "";
+    shell.hidden = true;
+    delete shell.dataset.haChartData;
+    if (empty) {
+      empty.hidden = false;
+    }
+    return;
+  }
+
+  const built = buildEntityHistoryChart(payload, {
+    zoomFactor,
+    unit: panel.dataset.entityUnit || "",
+    valueLabel: panel.dataset.labelValue,
+    minLabel: panel.dataset.labelMin,
+    maxLabel: panel.dataset.labelMax,
+    ariaLabel: panel.dataset.chartAriaLabel,
+  });
+
+  if (!built) {
+    shell.innerHTML = "";
+    shell.hidden = true;
+    if (empty) {
+      empty.hidden = false;
+    }
+    return;
+  }
+
+  shell.innerHTML = `${built.metaHtml}${built.chartHtml}`;
+  shell.hidden = false;
+  shell.dataset.haChartData = JSON.stringify(payload);
+  if (empty) {
+    empty.hidden = true;
+  }
+}
+
+/**
+ * Initialize interactive Home Assistant charts, live range updates, and map popups.
+ */
+function initEntityHistoryPanels() {
+  const controls = document.querySelector("[data-ha-history-controls='true']");
+  const rangeSelect = controls?.querySelector("[data-ha-history-range='true']");
+  const modal = document.querySelector("[data-ha-chart-modal]");
+  const modalBody = modal?.querySelector("[data-ha-chart-modal-body]");
+  const modalTitle = modal?.querySelector("[data-ha-chart-modal-title]");
+  const modalSubtitle = modal?.querySelector("[data-ha-chart-modal-subtitle]");
+  const modalRangeSelect = modal?.querySelector("[data-ha-chart-modal-range]");
+  const panels = Array.from(document.querySelectorAll("[data-ha-chart-panel='true']"));
+  if ((!controls && !panels.length) || document.body.dataset.haChartsReady === "true") {
+    return;
+  }
+  document.body.dataset.haChartsReady = "true";
+
+  const modalState = { entityId: null, zoomFactor: 1, panOffset: 0 };
+
+  const updateUrlRange = (rangeValue) => {
+    const url = new URL(window.location.href);
+    if (rangeValue && rangeValue !== "1d") {
+      url.searchParams.set("ha_range", rangeValue);
+    } else {
+      url.searchParams.delete("ha_range");
+    }
+    window.history.replaceState({}, "", url);
+  };
+
+  const openModalForEntity = (entityId) => {
+    if (!modal || !modalBody || !modalTitle || !modalSubtitle) {
+      return;
+    }
+    const panel = panels.find((item) => item.dataset.entityId === entityId);
+    const payload = panel?.querySelector(".entity-history-chart-shell")?.dataset.haChartData;
+    if (!panel || !payload) {
+      return;
+    }
+    const parsedPayload = JSON.parse(payload);
+    const built = buildEntityHistoryChart(parsedPayload, {
+      zoomFactor: modalState.zoomFactor,
+      panOffset: modalState.panOffset,
+      unit: panel.dataset.entityUnit || "",
+      valueLabel: panel.dataset.labelValue,
+      minLabel: panel.dataset.labelMin,
+      maxLabel: panel.dataset.labelMax,
+      ariaLabel: panel.dataset.chartAriaLabel,
+    });
+    modalState.entityId = entityId;
+    if (!built) {
+      return;
+    }
+    modalState.panOffset = built.panState.panOffset;
+    modalTitle.textContent = panel.dataset.entityLabel || entityId;
+    modalSubtitle.textContent = rangeSelect?.selectedOptions?.[0]?.textContent || "";
+    if (modalRangeSelect) {
+      modalRangeSelect.value = rangeSelect?.value || "1d";
+    }
+    modalBody.innerHTML = `<div class="entity-history-modal-chart">${built.metaHtml}${built.chartHtml}</div>`;
+    const panLeftButton = modal.querySelector("[data-ha-chart-pan-left]");
+    const panRightButton = modal.querySelector("[data-ha-chart-pan-right]");
+    if (panLeftButton) {
+      panLeftButton.disabled = built.panState.panOffset >= built.panState.maxPanOffset || built.panState.maxPanOffset === 0;
+    }
+    if (panRightButton) {
+      panRightButton.disabled = built.panState.panOffset <= 0;
+    }
+    modal.hidden = false;
+    document.body.classList.add("has-modal-open");
+  };
+
+  const closeModal = () => {
+    if (!modal) {
+      return;
+    }
+    modal.hidden = true;
+    document.body.classList.remove("has-modal-open");
+    modalState.entityId = null;
+    modalState.zoomFactor = 1;
+    modalState.panOffset = 0;
+  };
+
+  panels.forEach((panel) => {
+    const payload = panel.querySelector(".entity-history-chart-shell")?.dataset.haChartData;
+    if (payload) {
+      renderEntityHistoryPanel(panel, JSON.parse(payload));
+    }
+  });
+
+  document.querySelectorAll("[data-ha-chart-open='true']").forEach((trigger) => {
+    const activate = () => {
+      modalState.zoomFactor = 1;
+      modalState.panOffset = 0;
+      openModalForEntity(trigger.dataset.entityId || "");
+    };
+    trigger.addEventListener("click", activate);
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activate();
+      }
+    });
+  });
+
+  modal?.querySelectorAll("[data-ha-chart-close]").forEach((button) => {
+    button.addEventListener("click", closeModal);
+  });
+  modal?.querySelector("[data-ha-chart-zoom-in]")?.addEventListener("click", () => {
+    modalState.zoomFactor = Math.min(modalState.zoomFactor * 2, 16);
+    modalState.panOffset = 0;
+    if (modalState.entityId) {
+      openModalForEntity(modalState.entityId);
+    }
+  });
+  modal?.querySelector("[data-ha-chart-zoom-out]")?.addEventListener("click", () => {
+    modalState.zoomFactor = Math.max(1, Math.floor(modalState.zoomFactor / 2));
+    modalState.panOffset = 0;
+    if (modalState.entityId) {
+      openModalForEntity(modalState.entityId);
+    }
+  });
+  modal?.querySelector("[data-ha-chart-zoom-reset]")?.addEventListener("click", () => {
+    modalState.zoomFactor = 1;
+    modalState.panOffset = 0;
+    if (modalState.entityId) {
+      openModalForEntity(modalState.entityId);
+    }
+  });
+  modal?.querySelector("[data-ha-chart-pan-left]")?.addEventListener("click", () => {
+    const panel = panels.find((item) => item.dataset.entityId === modalState.entityId);
+    const payload = panel?.querySelector(".entity-history-chart-shell")?.dataset.haChartData;
+    if (!payload) {
+      return;
+    }
+    const parsedPayload = JSON.parse(payload);
+    const total = Array.isArray(parsedPayload.samples) ? parsedPayload.samples.length : 0;
+    const visibleCount = Math.max(2, Math.ceil(total / Math.max(1, modalState.zoomFactor)));
+    const step = Math.max(1, Math.floor(visibleCount / 2));
+    modalState.panOffset += step;
+    openModalForEntity(modalState.entityId);
+  });
+  modal?.querySelector("[data-ha-chart-pan-right]")?.addEventListener("click", () => {
+    const panel = panels.find((item) => item.dataset.entityId === modalState.entityId);
+    const payload = panel?.querySelector(".entity-history-chart-shell")?.dataset.haChartData;
+    if (!payload) {
+      return;
+    }
+    const parsedPayload = JSON.parse(payload);
+    const total = Array.isArray(parsedPayload.samples) ? parsedPayload.samples.length : 0;
+    const visibleCount = Math.max(2, Math.ceil(total / Math.max(1, modalState.zoomFactor)));
+    const step = Math.max(1, Math.floor(visibleCount / 2));
+    modalState.panOffset = Math.max(0, modalState.panOffset - step);
+    openModalForEntity(modalState.entityId);
+  });
+
+  const refreshHistoryRange = async (rangeValue) => {
+    const nodeId = controls?.dataset.nodeId;
+    if (!nodeId) {
+      return;
+    }
+    try {
+      const response = await fetch(`/nodes/${nodeId}/ha-history?range=${encodeURIComponent(rangeValue)}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      panels.forEach((panel) => {
+        renderEntityHistoryPanel(panel, payload.charts?.[panel.dataset.entityId] || null);
+      });
+      updateUrlRange(rangeValue);
+      if (rangeSelect) {
+        rangeSelect.value = rangeValue;
+      }
+      if (modalRangeSelect) {
+        modalRangeSelect.value = rangeValue;
+      }
+      if (modalState.entityId) {
+        modalState.zoomFactor = 1;
+        modalState.panOffset = 0;
+        openModalForEntity(modalState.entityId);
+      }
+    } catch (error) {
+      // Keep the current charts visible if live refresh fails.
+    }
+  };
+
+  rangeSelect?.addEventListener("change", async () => {
+    refreshHistoryRange(rangeSelect.value);
+  });
+  modalRangeSelect?.addEventListener("change", () => {
+    refreshHistoryRange(modalRangeSelect.value);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && modal && !modal.hidden) {
+      closeModal();
+    }
+  });
+}
+
+/**
+ * Initialize searchable select widgets backed by hidden native select fields.
+ */
+function initSearchableSelects() {
+  document.querySelectorAll("[data-searchable-select]").forEach((container) => {
+    if (container.dataset.searchReady === "true") {
+      return;
+    }
+
+    const input = container.querySelector("[data-searchable-select-input]");
+    const select = container.querySelector("[data-searchable-select-native='true']");
+    const optionsLayer = container.querySelector("[data-searchable-select-options]");
+    if (!input || !select || !optionsLayer) {
+      return;
+    }
+
+    container.dataset.searchReady = "true";
+    const allOptions = Array.from(select.options).map((option, index) => ({
+      value: option.value,
+      label: option.textContent || "",
+      isPlaceholder: index === 0,
+    }));
+
+    const applySelection = (value, label) => {
+      select.value = value;
+      input.value = value && value !== "0" ? label : "";
+      optionsLayer.hidden = true;
+    };
+
+    const renderOptions = (filterValue = "") => {
+      const normalizedFilter = filterValue.trim().toLowerCase();
+      const filtered = allOptions.filter((option) => (
+        option.isPlaceholder || !normalizedFilter || option.label.toLowerCase().includes(normalizedFilter)
+      ));
+
+      optionsLayer.innerHTML = "";
+      filtered.forEach((option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "searchable-select-option";
+        button.textContent = option.label;
+        button.dataset.searchableSelectValue = option.value;
+        if (select.value === option.value) {
+          button.classList.add("is-active");
+        }
+        optionsLayer.appendChild(button);
+      });
+      optionsLayer.hidden = filtered.length === 0;
+    };
+
+    const selectedLabel = select.selectedOptions?.[0]?.textContent || "";
+    if (select.value && select.value !== "0" && selectedLabel) {
+      input.value = selectedLabel;
+    } else {
+      input.value = "";
+    }
+    optionsLayer.hidden = true;
+
+    input.addEventListener("focus", () => {
+      renderOptions(input.value);
+    });
+
+    input.addEventListener("input", () => {
+      renderOptions(input.value);
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        optionsLayer.hidden = true;
+      }
+    });
+
+    optionsLayer.addEventListener("click", (event) => {
+      const option = event.target.closest("[data-searchable-select-value]");
+      if (!option) {
+        return;
+      }
+      const value = option.dataset.searchableSelectValue || "0";
+      applySelection(value, option.textContent || "");
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!container.contains(event.target)) {
+        optionsLayer.hidden = true;
+      }
+    });
+  });
+}
+
+/**
  * Parse a floating-point value with a fallback.
  *
  * @param {string|number|undefined|null} value Value to parse.
@@ -968,6 +1597,9 @@ window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
   syncMarkerPreview();
   initOverlayEditors();
+  initSearchableSelects();
+  initNodeDetailFilters();
+  initEntityHistoryPanels();
 };
 
 if (window.google?.maps) {
@@ -982,3 +1614,6 @@ syncProviderPanels();
 syncNodeTypeFields();
 syncCultivationYearFromPlantingDate();
 initOverlayEditors();
+initSearchableSelects();
+initNodeDetailFilters();
+initEntityHistoryPanels();

@@ -336,6 +336,100 @@
         </div>
       </div>
     {% endif %}
+
+    {% if node %}
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>{{ tr("node.home_assistant") }}</h2>
+            <p>{{ tr("node.entity_help") }}</p>
+          </div>
+          <a class="button" href="{{ url_for('main.add_entity', node_id=node.id) }}">{{ tr("node.add_entity") }}</a>
+        </div>
+
+        {% if node.ha_entities %}
+          <div class="stack-list">
+            {% for entity in node.ha_entities %}
+              <div class="list-item vertical">
+                <div class="list-copy">
+                  <strong>{{ entity.label }}</strong>
+                  {% set item = entity %}
+                  {% include "_audit_meta.html" %}
+                  <p>{{ entity.entity_id }}</p>
+                  {% if entity.current_value %}
+                    <p>
+                      {{ tr("node.value") }}: {{ entity.current_value }}
+                      {% if entity.unit_of_measurement %}
+                        {{ entity.unit_of_measurement }}
+                      {% endif %}
+                    </p>
+                  {% endif %}
+                  <p>{{ tr("node.shown") }}: {{ tr("node.yes") if entity.show_on_image else tr("node.no") }}</p>
+                  {% if entity.show_on_image and entity.map_x is not none and entity.map_y is not none %}
+                    <p>{{ tr("node.position") }}: X {{ "%.1f"|format(entity.map_x) }}%, Y {{ "%.1f"|format(entity.map_y) }}%</p>
+                  {% endif %}
+                  {% if entity.notes %}
+                    <p>{{ entity.notes }}</p>
+                  {% endif %}
+                </div>
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_entity', entity_id=entity.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_entity', entity_id=entity.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this entity?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("node.no_entities") }}</p>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if node and node.display_image %}
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>{{ tr("node.irrigation_zones") }}</h2>
+            <p>{{ tr("node.irrigation_manage_from_edit") }}</p>
+          </div>
+          <a class="button" href="{{ url_for('main.add_irrigation_zone', node_id=node.id) }}">{{ tr("node.add_irrigation_zone") }}</a>
+        </div>
+
+        {% if irrigation_zones %}
+          <div class="stack-list">
+            {% for zone in irrigation_zones %}
+              <div class="list-item vertical">
+                <div class="list-copy">
+                  <strong>{{ zone.name }}</strong>
+                  {% set item = zone %}
+                  {% include "_audit_meta.html" %}
+                  {% if zone.entity_id %}
+                    <p>{{ zone.entity_id }}</p>
+                  {% endif %}
+                  <p>
+                    <span class="color-swatch" style="--swatch-color: {{ zone.overlay_color_value }};"></span>
+                    {{ tr("node.irrigation_color") }}: {{ tr("node.irrigation_color_" ~ zone.overlay_color_key) }}
+                  </p>
+                  <p>{{ tr("node.irrigation_texture") }}: {{ tr("node.irrigation_texture_" ~ zone.texture_pattern_key) }}</p>
+                </div>
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_irrigation_zone', zone_id=zone.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_irrigation_zone', zone_id=zone.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this irrigation zone?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("node.no_irrigation_zones") }}</p>
+        {% endif %}
+      </section>
+    {% endif %}
   </section>
 {% endblock %}
 

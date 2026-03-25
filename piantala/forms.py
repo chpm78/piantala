@@ -19,7 +19,7 @@ from wtforms import (
 )
 from wtforms.validators import DataRequired, Email, EqualTo, Length, NumberRange, Optional, URL, ValidationError
 
-from .models import User
+from .models import DEFAULT_IRRIGATION_ZONE_COLOR, DEFAULT_IRRIGATION_ZONE_TEXTURE, User
 from .translations import SUPPORTED_LOCALES
 
 
@@ -590,6 +590,90 @@ class HomeAssistantEntityForm(FlaskForm):
     )
     notes = TextAreaField("Notes", validators=[Optional(), Length(max=1000)])
     submit = SubmitField("Add entity")
+
+
+class IrrigationZoneForm(FlaskForm):
+    name = StringField("Zone name", validators=[DataRequired(), Length(max=120)])
+    discovered_entity = SelectField(
+        "Discovered entity",
+        coerce=int,
+        validators=[Optional()],
+    )
+    overlay_color = SelectField(
+        "Overlay color",
+        choices=[],
+        default=DEFAULT_IRRIGATION_ZONE_COLOR,
+        validators=[DataRequired()],
+    )
+    texture_pattern = SelectField(
+        "Texture pattern",
+        choices=[],
+        default=DEFAULT_IRRIGATION_ZONE_TEXTURE,
+        validators=[DataRequired()],
+    )
+    map_x = DecimalField(
+        "Image X position (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    map_y = DecimalField(
+        "Image Y position (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    overlay_width = DecimalField(
+        "Area width (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=1, max=100)],
+        default=18,
+    )
+    overlay_height = DecimalField(
+        "Area height (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=1, max=100)],
+        default=12,
+    )
+    area_corner_1_x = DecimalField(
+        "Area corner 1 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_1_y = DecimalField(
+        "Area corner 1 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_2_x = DecimalField(
+        "Area corner 2 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_2_y = DecimalField(
+        "Area corner 2 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_3_x = DecimalField(
+        "Area corner 3 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_3_y = DecimalField(
+        "Area corner 3 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_4_x = DecimalField(
+        "Area corner 4 X (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    area_corner_4_y = DecimalField(
+        "Area corner 4 Y (%)",
+        places=2,
+        validators=[Optional(), NumberRange(min=0, max=100)],
+    )
+    submit = SubmitField("Save irrigation zone")
 
 
 class DeleteForm(FlaskForm):

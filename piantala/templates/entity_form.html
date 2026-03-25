@@ -78,7 +78,7 @@
 
       <div class="form-actions">
         {{ form.submit(class_="button", value=tr("common.save")) }}
-        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
+        <a class="button button-secondary" href="{{ url_for('main.edit_node', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
       </div>
     </form>
   </section>

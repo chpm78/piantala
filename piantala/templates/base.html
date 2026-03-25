@@ -53,6 +53,12 @@
         {% endif %}
       {% endwith %}
 
+      {% if current_user.is_authenticated and request.endpoint != 'main.index' %}
+        <div class="page-back-row">
+          <a class="text-link" href="{{ request.referrer or url_for('main.index') }}">{{ tr("common.back") }}</a>
+        </div>
+      {% endif %}
+
       {% block content %}{% endblock %}
     </main>
 

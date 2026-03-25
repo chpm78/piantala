@@ -39,6 +39,26 @@ DEFAULT_MARKER_COLOR_BY_NODE_TYPE = {
     "section": 2,
 }
 
+IRRIGATION_ZONE_COLORS = {
+    "blue": "#2c75ff",
+    "teal": "#1f9d8b",
+    "green": "#3e8b53",
+    "cyan": "#22b8cf",
+    "purple": "#7b5fd6",
+    "orange": "#f28c28",
+}
+
+IRRIGATION_ZONE_TEXTURES = {
+    "diagonal": "diagonal",
+    "crosshatch": "crosshatch",
+    "dots": "dots",
+    "grid": "grid",
+    "horizontal": "horizontal",
+}
+
+DEFAULT_IRRIGATION_ZONE_COLOR = "blue"
+DEFAULT_IRRIGATION_ZONE_TEXTURE = "diagonal"
+
 LEGACY_ANNUAL_CULTIVATION_YEAR = 2025
 
 
@@ -305,6 +325,12 @@ class GardenNode(AuditMixin, db.Model):
         back_populates="node",
         cascade="all, delete-orphan",
         order_by="NodeHomeAssistantEntity.label",
+    )
+    irrigation_zones = db.relationship(
+        "NodeIrrigationZone",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        order_by="NodeIrrigationZone.name",
     )
 
     LEVEL_LABELS = {
@@ -760,6 +786,142 @@ class NodeHomeAssistantEntity(AuditMixin, db.Model):
     node = db.relationship("GardenNode", back_populates="ha_entities")
 
 
+class NodeIrrigationZone(AuditMixin, db.Model):
+    __tablename__ = "node_irrigation_zones"
+
+    id = db.Column(db.Integer, primary_key=True)
+    node_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    entity_id = db.Column(db.String(255), nullable=True)
+    current_value = db.Column(db.String(120), nullable=True)
+    unit_of_measurement = db.Column(db.String(64), nullable=True)
+    map_x = db.Column(db.Float, nullable=True)
+    map_y = db.Column(db.Float, nullable=True)
+    overlay_width = db.Column(db.Float, nullable=False, default=18.0)
+    overlay_height = db.Column(db.Float, nullable=False, default=12.0)
+    overlay_color = db.Column(
+        db.String(32),
+        nullable=False,
+        default=DEFAULT_IRRIGATION_ZONE_COLOR,
+    )
+    texture_pattern = db.Column(
+        db.String(32),
+        nullable=False,
+        default=DEFAULT_IRRIGATION_ZONE_TEXTURE,
+    )
+    area_corner_1_x = db.Column(db.Float, nullable=True)
+    area_corner_1_y = db.Column(db.Float, nullable=True)
+    area_corner_2_x = db.Column(db.Float, nullable=True)
+    area_corner_2_y = db.Column(db.Float, nullable=True)
+    area_corner_3_x = db.Column(db.Float, nullable=True)
+    area_corner_3_y = db.Column(db.Float, nullable=True)
+    area_corner_4_x = db.Column(db.Float, nullable=True)
+    area_corner_4_y = db.Column(db.Float, nullable=True)
+    last_synced_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    node = db.relationship("GardenNode", back_populates="irrigation_zones")
+
+    @property
+    def overlay_color_key(self) -> str:
+        """Return a valid irrigation-zone color key."""
+        return (
+            self.overlay_color
+            if self.overlay_color in IRRIGATION_ZONE_COLORS
+            else DEFAULT_IRRIGATION_ZONE_COLOR
+        )
+
+    @property
+    def overlay_color_value(self) -> str:
+        """Return the hex color used to render the irrigation zone."""
+        return IRRIGATION_ZONE_COLORS[self.overlay_color_key]
+
+    @property
+    def texture_pattern_key(self) -> str:
+        """Return a valid irrigation-zone texture key."""
+        return (
+            self.texture_pattern
+            if self.texture_pattern in IRRIGATION_ZONE_TEXTURES
+            else DEFAULT_IRRIGATION_ZONE_TEXTURE
+        )
+
+    @property
+    def area_polygon_points(self) -> list[tuple[float, float]]:
+        """Return the irrigation zone polygon as percentage-based image points."""
+        stored_points = [
+            (self.area_corner_1_x, self.area_corner_1_y),
+            (self.area_corner_2_x, self.area_corner_2_y),
+            (self.area_corner_3_x, self.area_corner_3_y),
+            (self.area_corner_4_x, self.area_corner_4_y),
+        ]
+        if all(x is not None and y is not None for x, y in stored_points):
+            return [(float(x), float(y)) for x, y in stored_points]
+
+        if self.map_x is None or self.map_y is None:
+            return []
+
+        half_width = (self.overlay_width or 18.0) / 2
+        half_height = (self.overlay_height or 12.0) / 2
+        return [
+            (_clamp_percent(self.map_x - half_width), _clamp_percent(self.map_y - half_height)),
+            (_clamp_percent(self.map_x + half_width), _clamp_percent(self.map_y - half_height)),
+            (_clamp_percent(self.map_x + half_width), _clamp_percent(self.map_y + half_height)),
+            (_clamp_percent(self.map_x - half_width), _clamp_percent(self.map_y + half_height)),
+        ]
+
+    @property
+    def area_overlay_style(self) -> str:
+        """Return CSS positioning data for rendering the irrigation zone overlay."""
+        points = self.area_polygon_points
+        if len(points) != 4:
+            return ""
+
+        xs = [x for x, _y in points]
+        ys = [y for _x, y in points]
+        min_x = _clamp_percent(min(xs))
+        max_x = _clamp_percent(max(xs))
+        min_y = _clamp_percent(min(ys))
+        max_y = _clamp_percent(max(ys))
+        width = max(max_x - min_x, 0.5)
+        height = max(max_y - min_y, 0.5)
+        tooltip_left = ((sum(xs) / len(xs) - min_x) / width) * 100
+        tooltip_top = ((sum(ys) / len(ys) - min_y) / height) * 100
+        return (
+            f"left: {min_x:.2f}%; "
+            f"top: {min_y:.2f}%; "
+            f"width: {width:.2f}%; "
+            f"height: {height:.2f}%; "
+            f"--tooltip-left: {tooltip_left:.2f}%; "
+            f"--tooltip-top: {tooltip_top:.2f}%;"
+        )
+
+    @property
+    def area_overlay_svg_points(self) -> str:
+        """Return SVG-ready polygon points for the irrigation zone overlay."""
+        points = self.area_polygon_points
+        if len(points) != 4:
+            return ""
+
+        xs = [x for x, _y in points]
+        ys = [y for _x, y in points]
+        min_x = _clamp_percent(min(xs))
+        max_x = _clamp_percent(max(xs))
+        min_y = _clamp_percent(min(ys))
+        max_y = _clamp_percent(max(ys))
+        width = max(max_x - min_x, 0.5)
+        height = max(max_y - min_y, 0.5)
+        return " ".join(
+            f"{((x - min_x) / width) * 100:.2f},{((y - min_y) / height) * 100:.2f}"
+            for x, y in points
+        )
+
+
 class HomeAssistantSettings(AuditMixin, db.Model):
     __tablename__ = "home_assistant_settings"
 
@@ -1089,6 +1251,84 @@ def _sync_users_email_optionality(connection) -> None:
         return
 
     connection.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
+
+
+def _sync_irrigation_zone_entity_optionality(connection) -> None:
+    """Relax the irrigation zone entity column so Home Assistant linkage becomes optional.
+
+    Parameters:
+        connection: Active SQLAlchemy connection used for schema changes.
+    """
+    entity_column = next(
+        (
+            column
+            for column in inspect(db.engine).get_columns("node_irrigation_zones")
+            if column["name"] == "entity_id"
+        ),
+        None,
+    )
+    if entity_column is None or entity_column.get("nullable", True):
+        return
+
+    if db.engine.dialect.name == "sqlite":
+        connection.execute(text("PRAGMA foreign_keys=OFF"))
+        connection.execute(
+            text(
+                "CREATE TABLE node_irrigation_zones_new ("
+                " id INTEGER NOT NULL PRIMARY KEY,"
+                " node_id INTEGER NOT NULL,"
+                " name VARCHAR(120) NOT NULL,"
+                " entity_id VARCHAR(255),"
+                " current_value VARCHAR(120),"
+                " unit_of_measurement VARCHAR(64),"
+                " map_x FLOAT,"
+                " map_y FLOAT,"
+                " overlay_width FLOAT NOT NULL DEFAULT 18.0,"
+                " overlay_height FLOAT NOT NULL DEFAULT 12.0,"
+                " overlay_color VARCHAR(32) NOT NULL DEFAULT 'blue',"
+                " texture_pattern VARCHAR(32) NOT NULL DEFAULT 'diagonal',"
+                " area_corner_1_x FLOAT,"
+                " area_corner_1_y FLOAT,"
+                " area_corner_2_x FLOAT,"
+                " area_corner_2_y FLOAT,"
+                " area_corner_3_x FLOAT,"
+                " area_corner_3_y FLOAT,"
+                " area_corner_4_x FLOAT,"
+                " area_corner_4_y FLOAT,"
+                " last_synced_at DATETIME,"
+                " created_at DATETIME NOT NULL,"
+                " updated_at DATETIME NOT NULL,"
+                " created_by_name VARCHAR(80),"
+                " updated_by_name VARCHAR(80),"
+                " FOREIGN KEY(node_id) REFERENCES garden_nodes (id)"
+                ")"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO node_irrigation_zones_new ("
+                " id, node_id, name, entity_id, current_value, unit_of_measurement, map_x, map_y,"
+                " overlay_width, overlay_height, overlay_color, texture_pattern, area_corner_1_x, area_corner_1_y,"
+                " area_corner_2_x, area_corner_2_y, area_corner_3_x, area_corner_3_y,"
+                " area_corner_4_x, area_corner_4_y, last_synced_at, created_at, updated_at,"
+                " created_by_name, updated_by_name"
+                " ) "
+                "SELECT "
+                " id, node_id, name, NULLIF(entity_id, ''), current_value, unit_of_measurement, map_x, map_y,"
+                " overlay_width, overlay_height, COALESCE(NULLIF(overlay_color, ''), 'blue'),"
+                " COALESCE(NULLIF(texture_pattern, ''), 'diagonal'), area_corner_1_x, area_corner_1_y,"
+                " area_corner_2_x, area_corner_2_y, area_corner_3_x, area_corner_3_y,"
+                " area_corner_4_x, area_corner_4_y, last_synced_at, created_at, updated_at,"
+                " created_by_name, updated_by_name "
+                "FROM node_irrigation_zones"
+            )
+        )
+        connection.execute(text("DROP TABLE node_irrigation_zones"))
+        connection.execute(text("ALTER TABLE node_irrigation_zones_new RENAME TO node_irrigation_zones"))
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+        return
+
+    connection.execute(text("ALTER TABLE node_irrigation_zones ALTER COLUMN entity_id DROP NOT NULL"))
 
 
 def _sync_garden_node_uniqueness(connection) -> None:
@@ -1508,6 +1748,24 @@ def sync_schema() -> None:
                 "ADD COLUMN updated_by_name VARCHAR(80)"
             ),
         },
+        "node_irrigation_zones": {
+            "created_by_name": (
+                "ALTER TABLE node_irrigation_zones "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE node_irrigation_zones "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "overlay_color": (
+                "ALTER TABLE node_irrigation_zones "
+                "ADD COLUMN overlay_color VARCHAR(32) NOT NULL DEFAULT 'blue'"
+            ),
+            "texture_pattern": (
+                "ALTER TABLE node_irrigation_zones "
+                "ADD COLUMN texture_pattern VARCHAR(32) NOT NULL DEFAULT 'diagonal'"
+            ),
+        },
     }
 
     connection = db.session.connection()
@@ -1527,6 +1785,9 @@ def sync_schema() -> None:
 
     if "users" in existing_tables:
         _sync_users_email_optionality(connection)
+
+    if "node_irrigation_zones" in existing_tables:
+        _sync_irrigation_zone_entity_optionality(connection)
 
     if "node_photos" in existing_tables:
         connection.execute(

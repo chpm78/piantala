@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="breadcrumb-row">
+      <a class="text-link" href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>
+      {% for crumb in node.breadcrumbs() %}
+        <span>/</span>
+        <a class="text-link" href="{{ url_for('main.node_detail', node_id=crumb.id) }}">{{ crumb.title }}</a>
+      {% endfor %}
+      <span>/</span>
+      <span>{{ tr("node.edit_irrigation_zone") if zone else tr("node.add_irrigation_zone") }}</span>
+    </div>
+
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("node.irrigation_zones") }}</p>
+        <h1>{{ tr("node.edit_irrigation_zone") if zone else tr("node.add_irrigation_zone") }}</h1>
+        <p>{{ tr("node.irrigation_zone_form_text") }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <div hidden class="full-width">
+        <input type="hidden" name="{{ form.map_x.name }}" id="irrigation_map_x" value="{{ form.map_x.data if form.map_x.data is not none else 50 }}">
+        <input type="hidden" name="{{ form.map_y.name }}" id="irrigation_map_y" value="{{ form.map_y.data if form.map_y.data is not none else 50 }}">
+        <input type="hidden" name="{{ form.overlay_width.name }}" id="irrigation_overlay_width" value="{{ form.overlay_width.data if form.overlay_width.data is not none else 18 }}">
+        <input type="hidden" name="{{ form.overlay_height.name }}" id="irrigation_overlay_height" value="{{ form.overlay_height.data if form.overlay_height.data is not none else 12 }}">
+        <input type="hidden" name="{{ form.area_corner_1_x.name }}" id="area_corner_1_x" value="{{ form.area_corner_1_x.data if form.area_corner_1_x.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_1_y.name }}" id="area_corner_1_y" value="{{ form.area_corner_1_y.data if form.area_corner_1_y.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_2_x.name }}" id="area_corner_2_x" value="{{ form.area_corner_2_x.data if form.area_corner_2_x.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_2_y.name }}" id="area_corner_2_y" value="{{ form.area_corner_2_y.data if form.area_corner_2_y.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_3_x.name }}" id="area_corner_3_x" value="{{ form.area_corner_3_x.data if form.area_corner_3_x.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_3_y.name }}" id="area_corner_3_y" value="{{ form.area_corner_3_y.data if form.area_corner_3_y.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_4_x.name }}" id="area_corner_4_x" value="{{ form.area_corner_4_x.data if form.area_corner_4_x.data is not none else '' }}">
+        <input type="hidden" name="{{ form.area_corner_4_y.name }}" id="area_corner_4_y" value="{{ form.area_corner_4_y.data if form.area_corner_4_y.data is not none else '' }}">
+      </div>
+
+      <label>
+        <span>{{ tr("node.zone_name") }}</span>
+        {{ form.name(class_="input") }}
+        {% for error in form.name.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label class="full-width">
+        <span>{{ tr("node.discovered_entity") }}</span>
+        <div class="searchable-select" data-searchable-select>
+          <input
+            class="input searchable-select-input"
+            type="text"
+            placeholder="{{ tr('node.entity_search_placeholder') }}"
+            data-searchable-select-input
+            autocomplete="off"
+            aria-label="{{ tr('node.discovered_entity') }}"
+          >
+          {{ form.discovered_entity(class_="input searchable-select-native", id="irrigation_discovered_entity", data_searchable_select_native="true") }}
+          <div class="searchable-select-options" data-searchable-select-options></div>
+        </div>
+        {% for error in form.discovered_entity.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+        <small class="hint">{{ tr("node.entity_optional_for_irrigation") }}</small>
+      </label>
+
+      <label>
+        <span>{{ tr("node.irrigation_color") }}</span>
+        {{ form.overlay_color(class_="input") }}
+      </label>
+
+      <label>
+        <span>{{ tr("node.irrigation_texture") }}</span>
+        {{ form.texture_pattern(class_="input") }}
+      </label>
+
+      <div class="inline-map-help full-width">
+        <h2>{{ tr("node.irrigation_zone_helper_title") }}</h2>
+        <p>{{ tr("node.irrigation_zone_helper_text") }}</p>
+        <div
+          class="garden-map image-overlay"
+          data-overlay-editor="true"
+          data-coordinate-picker="image"
+          data-shape-input="irrigation_overlay_shape"
+          data-x-input="irrigation_map_x"
+          data-y-input="irrigation_map_y"
+          data-width-input="irrigation_overlay_width"
+          data-height-input="irrigation_overlay_height"
+          data-feedback-target="irrigation-zone-feedback"
+        >
+          <input type="hidden" id="irrigation_overlay_shape" value="area">
+          <div class="image-stage">
+            <img
+              class="stage-image"
+              src="{{ url_for('static', filename=current_image_path) }}"
+              alt="{{ node.title }}"
+            >
+            {% for existing_zone in irrigation_zones if zone is none or existing_zone.id != zone.id %}
+              <div
+                class="image-hotspot-area-overlay image-irrigation-zone-overlay image-hotspot-static"
+                style="{{ existing_zone.area_overlay_style }}"
+                data-title="{{ existing_zone.name }}"
+                aria-label="{{ existing_zone.name }}"
+              >
+                <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  <defs>
+                    <pattern id="irrigation-editor-pattern-{{ existing_zone.id }}" patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(35)">
+                      {% if existing_zone.texture_pattern_key == "diagonal" %}
+                        <line x1="0" y1="14" x2="14" y2="0" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.45" stroke-width="3"></line>
+                      {% elif existing_zone.texture_pattern_key == "crosshatch" %}
+                        <line x1="0" y1="14" x2="14" y2="0" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                        <line x1="0" y1="0" x2="14" y2="14" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                      {% elif existing_zone.texture_pattern_key == "dots" %}
+                        <circle cx="3" cy="3" r="1.8" fill="{{ existing_zone.overlay_color_value }}" fill-opacity="0.45"></circle>
+                        <circle cx="10.5" cy="10.5" r="1.8" fill="{{ existing_zone.overlay_color_value }}" fill-opacity="0.45"></circle>
+                      {% elif existing_zone.texture_pattern_key == "grid" %}
+                        <line x1="0" y1="0" x2="0" y2="14" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        <line x1="7" y1="0" x2="7" y2="14" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        <line x1="0" y1="0" x2="14" y2="0" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        <line x1="0" y1="7" x2="14" y2="7" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                      {% elif existing_zone.texture_pattern_key == "horizontal" %}
+                        <line x1="0" y1="3" x2="14" y2="3" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                        <line x1="0" y1="10" x2="14" y2="10" stroke="{{ existing_zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                      {% endif %}
+                    </pattern>
+                  </defs>
+                  <polygon class="image-irrigation-zone-polygon" points="{{ existing_zone.area_overlay_svg_points }}" fill="{{ existing_zone.overlay_color_value }}" fill-opacity="0.14" stroke="{{ existing_zone.overlay_color_value }}"></polygon>
+                  <polygon class="image-irrigation-zone-pattern" points="{{ existing_zone.area_overlay_svg_points }}" fill="url(#irrigation-editor-pattern-{{ existing_zone.id }})"></polygon>
+                </svg>
+                <span class="image-irrigation-zone-icon mdi mdi-sprinkler" aria-hidden="true" style="color: {{ existing_zone.overlay_color_value }};"></span>
+              </div>
+            {% endfor %}
+            <div class="overlay-editor-layer" data-overlay-editor-layer>
+              <svg class="overlay-editor-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <polygon class="overlay-editor-polygon" data-overlay-editor-polygon points=""></polygon>
+              </svg>
+              {% for handle_index in range(4) %}
+                <button
+                  class="overlay-editor-handle"
+                  type="button"
+                  data-overlay-editor-handle="{{ handle_index }}"
+                  aria-label="Area corner {{ handle_index + 1 }}"
+                ></button>
+              {% endfor %}
+            </div>
+            <div class="point-positions-layer" data-point-positions-layer hidden></div>
+          </div>
+        </div>
+        <p id="irrigation-zone-feedback" class="hint">{{ tr("node.irrigation_zone_click_hint") }}</p>
+      </div>
+
+      <div class="form-actions full-width">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('main.edit_node', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

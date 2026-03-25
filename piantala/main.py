@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, UTC
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from .extensions import db
@@ -11,25 +11,32 @@ from .forms import (
     DeleteForm,
     ExternalLinkForm,
     HomeAssistantEntityForm,
+    IrrigationZoneForm,
     MapSettingsForm,
     NodeForm,
     NodeActivityForm,
     PhotoEditForm,
     PhotoForm,
 )
+from .home_assistant import HomeAssistantError, fetch_entity_history
 from .media import extract_exif_taken_at, filename_stem
 from .models import (
     ActivityType,
+    DEFAULT_IRRIGATION_ZONE_COLOR,
+    DEFAULT_IRRIGATION_ZONE_TEXTURE,
     GardenNode,
     GardenSettings,
     HomeAssistantEntityCatalog,
     HomeAssistantSettings,
+    IRRIGATION_ZONE_COLORS,
+    IRRIGATION_ZONE_TEXTURES,
     LinkType,
     MarkerColor,
     NodeActivity,
     NodeActivityImage,
     NodeExternalLink,
     NodeHomeAssistantEntity,
+    NodeIrrigationZone,
     NodePhoto,
     TranslationEntry,
     DEFAULT_MARKER_COLOR_BY_NODE_TYPE,
@@ -134,21 +141,49 @@ def _clamp_percent(value: float) -> float:
     return max(0.0, min(100.0, value))
 
 
+def _polygon_from_coordinate_pairs(
+    raw_points: list[tuple[object | None, object | None]],
+) -> list[tuple[float, float]]:
+    """Normalize polygon corner pairs into percentage coordinates.
+
+    Parameters:
+        raw_points: Corner pairs read from form fields or other raw inputs.
+    """
+    if not all(x is not None and y is not None for x, y in raw_points):
+        return []
+    return [(_clamp_percent(float(x)), _clamp_percent(float(y))) for x, y in raw_points]
+
+
 def _polygon_from_form(form: NodeForm) -> list[tuple[float, float]]:
     """Read a four-corner area polygon from the node form.
 
     Parameters:
         form: Submitted node form containing the hidden corner fields.
     """
-    raw_points = [
-        (form.area_corner_1_x.data, form.area_corner_1_y.data),
-        (form.area_corner_2_x.data, form.area_corner_2_y.data),
-        (form.area_corner_3_x.data, form.area_corner_3_y.data),
-        (form.area_corner_4_x.data, form.area_corner_4_y.data),
-    ]
-    if not all(x is not None and y is not None for x, y in raw_points):
-        return []
-    return [(_clamp_percent(float(x)), _clamp_percent(float(y))) for x, y in raw_points]
+    return _polygon_from_coordinate_pairs(
+        [
+            (form.area_corner_1_x.data, form.area_corner_1_y.data),
+            (form.area_corner_2_x.data, form.area_corner_2_y.data),
+            (form.area_corner_3_x.data, form.area_corner_3_y.data),
+            (form.area_corner_4_x.data, form.area_corner_4_y.data),
+        ]
+    )
+
+
+def _polygon_from_irrigation_form(form: IrrigationZoneForm) -> list[tuple[float, float]]:
+    """Read a four-corner irrigation zone polygon from the irrigation form.
+
+    Parameters:
+        form: Submitted irrigation zone form containing hidden corner fields.
+    """
+    return _polygon_from_coordinate_pairs(
+        [
+            (form.area_corner_1_x.data, form.area_corner_1_y.data),
+            (form.area_corner_2_x.data, form.area_corner_2_y.data),
+            (form.area_corner_3_x.data, form.area_corner_3_y.data),
+            (form.area_corner_4_x.data, form.area_corner_4_y.data),
+        ]
+    )
 
 
 def _polygon_centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
@@ -175,6 +210,120 @@ def _polygon_bounds(points: list[tuple[float, float]]) -> tuple[float, float]:
     xs = [x for x, _y in points]
     ys = [y for _x, y in points]
     return (max(max(xs) - min(xs), 0.5), max(max(ys) - min(ys), 0.5))
+
+
+def _history_days_from_range(range_key: str) -> int:
+    """Return the day count associated with a Home Assistant history range key.
+
+    Parameters:
+        range_key: Compact range identifier from the query string.
+    """
+    return 7 if range_key == "7d" else 1
+
+
+def _parse_history_timestamp(value: str | None) -> datetime | None:
+    """Parse a Home Assistant history timestamp into a timezone-aware datetime.
+
+    Parameters:
+        value: ISO timestamp string returned by Home Assistant.
+    """
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _build_entity_history_chart(
+    history_points: list[dict[str, str | None]],
+    *,
+    range_key: str,
+) -> dict[str, object] | None:
+    """Convert Home Assistant state history into chart-ready numeric samples.
+
+    Parameters:
+        history_points: Raw history points returned by the Home Assistant API.
+        range_key: Selected range key such as ``1d`` or ``7d``.
+    """
+    samples: list[tuple[datetime, float]] = []
+    for point in history_points:
+        timestamp = _parse_history_timestamp(point.get("last_changed"))
+        if timestamp is None:
+            continue
+        try:
+            numeric_state = float(point.get("state") or "")
+        except (TypeError, ValueError):
+            continue
+        samples.append((timestamp, numeric_state))
+
+    if not samples:
+        return None
+
+    samples.sort(key=lambda item: item[0])
+    start_at = samples[0][0]
+    end_at = samples[-1][0]
+    min_value = min(value for _timestamp, value in samples)
+    max_value = max(value for _timestamp, value in samples)
+
+    def _format_value(raw_value: float) -> str:
+        if abs(raw_value - round(raw_value)) < 1e-9:
+            return str(int(round(raw_value)))
+        return f"{raw_value:.2f}".rstrip("0").rstrip(".")
+
+    if range_key == "7d":
+        time_format = "%d/%m"
+    else:
+        time_format = "%d/%m %H:%M"
+
+    return {
+        "min_value": _format_value(min_value),
+        "max_value": _format_value(max_value),
+        "latest_value": _format_value(samples[-1][1]),
+        "start_label": start_at.astimezone().strftime(time_format),
+        "end_label": end_at.astimezone().strftime(time_format),
+        "sample_count": len(samples),
+        "range_key": range_key,
+        "samples": [
+            {
+                "ts": timestamp.astimezone(UTC).isoformat(),
+                "value": value,
+            }
+            for timestamp, value in samples
+        ],
+    }
+
+
+def _load_entity_history_payload(
+    node: GardenNode,
+    *,
+    range_key: str,
+) -> tuple[dict[str, dict[str, object] | None], str | None]:
+    """Load chart payloads for all Home Assistant entities linked to a node.
+
+    Parameters:
+        node: Node whose Home Assistant entities should be charted.
+        range_key: Selected time range key such as ``1d`` or ``7d``.
+    """
+    ha_settings = HomeAssistantSettings.get_or_create()
+    if not node.ha_entities or not ha_settings.is_configured:
+        return {}, None
+
+    try:
+        history_by_entity = fetch_entity_history(
+            ha_settings,
+            [entity.entity_id for entity in node.ha_entities],
+            days=_history_days_from_range(range_key),
+        )
+        return {
+            entity.entity_id: _build_entity_history_chart(
+                history_by_entity.get(entity.entity_id, []),
+                range_key=range_key,
+            )
+            for entity in node.ha_entities
+        }, None
+    except HomeAssistantError as exc:
+        return {}, str(exc)
 
 
 def _set_default_photo(node: GardenNode, selected_photo: NodePhoto | None) -> None:
@@ -471,6 +620,13 @@ def node_detail(node_id: int):
     """
     node = GardenNode.query.get_or_404(node_id)
     show_dead_children = request.args.get("show_dead") == "1"
+    requested_display_mode = request.args.get("display")
+    if requested_display_mode in {"irrigation", "cultivations", "both"}:
+        display_mode = requested_display_mode
+    elif request.args.get("show_irrigation") == "1":
+        display_mode = "both"
+    else:
+        display_mode = "cultivations"
     annual_children = _annual_direct_children(node)
     raw_year = request.args.get("year")
     selected_year = request.args.get("year", type=int) if raw_year not in {None, ""} else None
@@ -485,6 +641,8 @@ def node_detail(node_id: int):
         key=lambda photo: (photo.taken_at, photo.id),
         reverse=True,
     )
+    requested_history_range = request.args.get("ha_range")
+    ha_history_range = requested_history_range if requested_history_range in {"1d", "7d"} else "1d"
     requested_photo_id = request.args.get("photo", type=int)
     selected_photo = None
     if requested_photo_id is not None:
@@ -500,19 +658,10 @@ def node_detail(node_id: int):
         if selected_photo is not None
         else node.display_image
     )
-    visible_children = [
-        child
-        for child in node.children
-        if (show_dead_children or not child.is_dead)
-        and (
-            child.life_cycle != "annual"
-            or selected_year is None
-            or child.effective_cultivation_year == selected_year
-        )
-    ]
+    visible_children = list(node.children)
     image_children = [
         child
-        for child in visible_children
+        for child in node.children
         if child.has_hotspot and child.is_published
     ]
     image_entities = [
@@ -520,11 +669,21 @@ def node_detail(node_id: int):
         for entity in node.ha_entities
         if entity.show_on_image and entity.map_x is not None and entity.map_y is not None
     ]
+    image_irrigation_zones = [
+        zone
+        for zone in node.irrigation_zones
+        if zone.area_polygon_points
+    ]
     entity_form = _home_assistant_entity_form()
     catalog_by_entity_id = {
         entry.entity_id: entry
         for entry in HomeAssistantEntityCatalog.query.all()
     }
+    ha_settings = HomeAssistantSettings.get_or_create()
+    ha_history_charts, ha_history_error = _load_entity_history_payload(
+        node,
+        range_key=ha_history_range,
+    )
     current_year = datetime.now(UTC).year
     source_sections = GardenNode.query.filter_by(level=2).order_by(GardenNode.title).all()
     current_section = node.section_ancestor
@@ -563,17 +722,46 @@ def node_detail(node_id: int):
         current_image_path=current_image_path,
         selected_photo=selected_photo,
         ordered_photos=ordered_photos,
+        display_mode=display_mode,
+        image_irrigation_zones=image_irrigation_zones,
         settings=_settings(),
         image_children=image_children,
         image_entities=image_entities,
+        irrigation_zones=node.irrigation_zones,
         photo_form=PhotoForm(prefix="photo"),
         activity_form=_activity_form(),
         link_form=_external_link_form(),
         entity_form=entity_form,
+        irrigation_zone_form=_irrigation_zone_form(),
         ha_catalog_by_entity_id=catalog_by_entity_id,
-        ha_is_configured=HomeAssistantSettings.get_or_create().is_configured,
+        ha_is_configured=ha_settings.is_configured,
         ha_catalog_count=HomeAssistantEntityCatalog.query.count(),
+        ha_history_range=ha_history_range,
+        ha_history_charts=ha_history_charts,
+        ha_history_error=ha_history_error,
         delete_form=DeleteForm(),
+    )
+
+
+@bp.route("/nodes/<int:node_id>/ha-history")
+@login_required
+@permission_required("view_dashboard")
+def node_entity_history(node_id: int):
+    """Return Home Assistant chart payloads for the entities linked to a node.
+
+    Parameters:
+        node_id: Identifier of the node whose entity history should be returned.
+    """
+    node = GardenNode.query.get_or_404(node_id)
+    requested_range = request.args.get("range")
+    range_key = requested_range if requested_range in {"1d", "7d"} else "1d"
+    chart_payload, history_error = _load_entity_history_payload(node, range_key=range_key)
+    return jsonify(
+        {
+            "range": range_key,
+            "error": history_error,
+            "charts": chart_payload,
+        }
     )
 
 
@@ -889,6 +1077,8 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         use_geo_map=use_geo_map,
         marker_colors=marker_colors,
         marker_icon_suggestions=MARKER_ICON_SUGGESTIONS,
+        irrigation_zones=node.irrigation_zones if node is not None else [],
+        delete_form=DeleteForm(),
     )
 
 
@@ -1155,7 +1345,7 @@ def add_link(node_id: int):
         link_type = db.session.get(LinkType, form.link_type_id.data)
         if link_type is None:
             flash("Selected link type was not found.", "danger")
-            return redirect(url_for("main.node_detail", node_id=node.id))
+            return redirect(url_for("main.edit_node", node_id=node.id))
         link = NodeExternalLink(
             node=node,
             link_type=link_type,
@@ -1248,7 +1438,7 @@ def add_entity(node_id: int):
         catalog_entry = db.session.get(HomeAssistantEntityCatalog, form.discovered_entity.data)
         if catalog_entry is None:
             flash("Selected Home Assistant entity was not found. Re-sync the catalog.", "danger")
-            return redirect(url_for("main.node_detail", node_id=node.id))
+            return redirect(url_for("main.edit_node", node_id=node.id))
         existing_link = NodeHomeAssistantEntity.query.filter_by(
             node_id=node.id,
             entity_id=catalog_entry.entity_id,
@@ -1280,7 +1470,7 @@ def add_entity(node_id: int):
     else:
         flash("Entity could not be added. Sync Home Assistant entities and choose one from the list.", "danger")
 
-    return redirect(url_for("main.node_detail", node_id=node.id))
+    return redirect(url_for("main.edit_node", node_id=node.id))
 
 
 @bp.route("/entities/<int:entity_id>/delete", methods=["POST"])
@@ -1299,7 +1489,7 @@ def delete_entity(entity_id: int):
         db.session.delete(entity)
         db.session.commit()
         flash("Entity deleted.", "success")
-    return redirect(url_for("main.node_detail", node_id=node_id))
+    return redirect(url_for("main.edit_node", node_id=node_id))
 
 
 @bp.route("/entities/<int:entity_id>/edit", methods=["GET", "POST"])
@@ -1328,7 +1518,7 @@ def edit_entity(entity_id: int):
         catalog_entry = db.session.get(HomeAssistantEntityCatalog, form.discovered_entity.data)
         if catalog_entry is None:
             flash("Selected Home Assistant entity was not found. Re-sync the catalog.", "danger")
-            return redirect(url_for("main.node_detail", node_id=entity.node_id))
+            return redirect(url_for("main.edit_node", node_id=entity.node_id))
 
         existing_link = NodeHomeAssistantEntity.query.filter(
             NodeHomeAssistantEntity.node_id == entity.node_id,
@@ -1337,7 +1527,7 @@ def edit_entity(entity_id: int):
         ).first()
         if existing_link:
             flash("That Home Assistant entity is already linked to this node.", "warning")
-            return redirect(url_for("main.node_detail", node_id=entity.node_id))
+            return redirect(url_for("main.edit_node", node_id=entity.node_id))
 
         entity.entity_id = catalog_entry.entity_id
         entity.label = (
@@ -1354,7 +1544,7 @@ def edit_entity(entity_id: int):
         entity.last_synced_at = datetime.now(UTC)
         db.session.commit()
         flash("Home Assistant entity updated.", "success")
-        return redirect(url_for("main.node_detail", node_id=entity.node_id))
+        return redirect(url_for("main.edit_node", node_id=entity.node_id))
 
     current_image_path = (
         entity.node.display_image
@@ -1366,6 +1556,170 @@ def edit_entity(entity_id: int):
         node=entity.node,
         current_image_path=current_image_path,
         settings=_settings(),
+    )
+
+
+@bp.route("/nodes/<int:node_id>/irrigation-zones/new", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def add_irrigation_zone(node_id: int):
+    """Create a new irrigation zone on a node image.
+
+    Parameters:
+        node_id: Identifier of the node receiving the irrigation zone.
+    """
+    node = GardenNode.query.get_or_404(node_id)
+    return _upsert_irrigation_zone(node=node, zone=None)
+
+
+@bp.route("/irrigation-zones/<int:zone_id>/edit", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def edit_irrigation_zone(zone_id: int):
+    """Edit an existing irrigation zone.
+
+    Parameters:
+        zone_id: Identifier of the irrigation zone to update.
+    """
+    zone = NodeIrrigationZone.query.get_or_404(zone_id)
+    return _upsert_irrigation_zone(node=zone.node, zone=zone)
+
+
+@bp.route("/irrigation-zones/<int:zone_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_irrigation_zone(zone_id: int):
+    """Delete an irrigation zone from a node image.
+
+    Parameters:
+        zone_id: Identifier of the irrigation zone to remove.
+    """
+    zone = NodeIrrigationZone.query.get_or_404(zone_id)
+    node_id = zone.node_id
+    fallback_url = url_for("main.edit_node", node_id=node_id)
+    form = DeleteForm()
+    if form.validate_on_submit():
+        db.session.delete(zone)
+        db.session.commit()
+        flash("Irrigation zone deleted.", "success")
+    return redirect(request.referrer or fallback_url)
+
+
+def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
+    """Create or update an irrigation zone linked to a node image.
+
+    Parameters:
+        node: Node that owns the irrigation zone.
+        zone: Existing irrigation zone being edited, or None when creating one.
+    """
+    if not node.display_image:
+        flash("Add a default image to this node before placing irrigation zones.", "warning")
+        return redirect(url_for("main.edit_node", node_id=node.id))
+
+    form = _irrigation_zone_form(zone)
+    if request.method == "GET" and zone is not None:
+        catalog_entry = (
+            HomeAssistantEntityCatalog.query.filter_by(entity_id=zone.entity_id).first()
+            if zone.entity_id
+            else None
+        )
+        if catalog_entry is not None:
+            form.discovered_entity.data = catalog_entry.id
+        form.name.data = zone.name
+        form.overlay_color.data = zone.overlay_color_key
+        form.texture_pattern.data = zone.texture_pattern_key
+        (
+            form.area_corner_1_x.data,
+            form.area_corner_1_y.data,
+            form.area_corner_2_x.data,
+            form.area_corner_2_y.data,
+            form.area_corner_3_x.data,
+            form.area_corner_3_y.data,
+            form.area_corner_4_x.data,
+            form.area_corner_4_y.data,
+        ) = (
+            zone.area_corner_1_x,
+            zone.area_corner_1_y,
+            zone.area_corner_2_x,
+            zone.area_corner_2_y,
+            zone.area_corner_3_x,
+            zone.area_corner_3_y,
+            zone.area_corner_4_x,
+            zone.area_corner_4_y,
+        )
+
+    if form.validate_on_submit():
+        catalog_entry = (
+            db.session.get(HomeAssistantEntityCatalog, form.discovered_entity.data)
+            if form.discovered_entity.data
+            else None
+        )
+        if form.discovered_entity.data and catalog_entry is None:
+            flash("Selected Home Assistant entity was not found. Re-sync the catalog.", "danger")
+            return redirect(url_for("main.edit_node", node_id=node.id))
+
+        polygon_points = _polygon_from_irrigation_form(form)
+        if not polygon_points:
+            flash("Draw the irrigation zone directly on the image before saving.", "danger")
+            return render_template(
+                "irrigation_zone_form.html",
+                form=form,
+                zone=zone,
+                node=node,
+                current_image_path=node.display_image,
+                irrigation_zones=node.irrigation_zones,
+                settings=_settings(),
+                delete_form=DeleteForm(),
+            )
+
+        if zone is None:
+            zone = NodeIrrigationZone(node=node)
+            db.session.add(zone)
+
+        zone.name = form.name.data.strip()
+        zone.entity_id = catalog_entry.entity_id if catalog_entry is not None else None
+        zone.current_value = catalog_entry.state if catalog_entry is not None else None
+        zone.unit_of_measurement = (
+            catalog_entry.unit_of_measurement if catalog_entry is not None else None
+        )
+        zone.last_synced_at = datetime.now(UTC) if catalog_entry is not None else None
+        zone.overlay_width, zone.overlay_height = _polygon_bounds(polygon_points)
+        zone.map_x, zone.map_y = _polygon_centroid(polygon_points)
+        zone.overlay_color = form.overlay_color.data or DEFAULT_IRRIGATION_ZONE_COLOR
+        zone.texture_pattern = form.texture_pattern.data or DEFAULT_IRRIGATION_ZONE_TEXTURE
+        (
+            zone.area_corner_1_x,
+            zone.area_corner_1_y,
+            zone.area_corner_2_x,
+            zone.area_corner_2_y,
+            zone.area_corner_3_x,
+            zone.area_corner_3_y,
+            zone.area_corner_4_x,
+            zone.area_corner_4_y,
+        ) = (
+            polygon_points[0][0],
+            polygon_points[0][1],
+            polygon_points[1][0],
+            polygon_points[1][1],
+            polygon_points[2][0],
+            polygon_points[2][1],
+            polygon_points[3][0],
+            polygon_points[3][1],
+        )
+
+        db.session.commit()
+        flash("Irrigation zone saved.", "success")
+        return redirect(url_for("main.edit_node", node_id=node.id))
+
+    return render_template(
+        "irrigation_zone_form.html",
+        form=form,
+        zone=zone,
+        node=node,
+        current_image_path=node.display_image,
+        irrigation_zones=node.irrigation_zones,
+        settings=_settings(),
+        delete_form=DeleteForm(),
     )
 
 
@@ -1387,6 +1741,56 @@ def _home_assistant_entity_form() -> HomeAssistantEntityForm:
     if request.method == "GET":
         form.map_x.data = 50
         form.map_y.data = 50
+    return form
+
+
+def _irrigation_zone_form(zone: NodeIrrigationZone | None = None) -> IrrigationZoneForm:
+    """Build the irrigation zone form with discovered Home Assistant entities.
+
+    Parameters:
+        zone: Existing irrigation zone being edited, if any.
+    """
+    form = IrrigationZoneForm(prefix="irrigation")
+    labels = _localized_labels()
+    catalog_entries = HomeAssistantEntityCatalog.query.order_by(
+        HomeAssistantEntityCatalog.domain,
+        HomeAssistantEntityCatalog.friendly_name,
+        HomeAssistantEntityCatalog.entity_id,
+    ).all()
+    form.overlay_color.choices = [
+        (color_key, labels.get(f"node.irrigation_color_{color_key}", color_key.title()))
+        for color_key in IRRIGATION_ZONE_COLORS
+    ]
+    form.texture_pattern.choices = [
+        (texture_key, labels.get(f"node.irrigation_texture_{texture_key}", texture_key.title()))
+        for texture_key in IRRIGATION_ZONE_TEXTURES
+    ]
+    form.discovered_entity.choices = [(0, labels.get("node.entity_none", "No Home Assistant entity"))] + [
+        (
+            entry.id,
+            _entity_choice_label(entry),
+        )
+        for entry in catalog_entries
+    ]
+    if request.method == "GET":
+        form.map_x.data = zone.map_x if zone is not None and zone.map_x is not None else 50
+        form.map_y.data = zone.map_y if zone is not None and zone.map_y is not None else 50
+        form.overlay_width.data = (
+            zone.overlay_width
+            if zone is not None and zone.overlay_width is not None
+            else 18
+        )
+        form.overlay_height.data = (
+            zone.overlay_height
+            if zone is not None and zone.overlay_height is not None
+            else 12
+        )
+        form.overlay_color.data = (
+            zone.overlay_color_key if zone is not None else DEFAULT_IRRIGATION_ZONE_COLOR
+        )
+        form.texture_pattern.data = (
+            zone.texture_pattern_key if zone is not None else DEFAULT_IRRIGATION_ZONE_TEXTURE
+        )
     return form
 
 

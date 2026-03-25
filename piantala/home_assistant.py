@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import ssl
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from urllib import error, parse, request
 
 from .extensions import db
@@ -157,6 +157,65 @@ def fetch_states(settings: HomeAssistantSettings) -> list[HomeAssistantState]:
         )
 
     return states
+
+
+def fetch_entity_history(
+    settings: HomeAssistantSettings,
+    entity_ids: list[str],
+    *,
+    days: int,
+) -> dict[str, list[dict[str, str | None]]]:
+    """Fetch Home Assistant history samples for one or more entities.
+
+    Parameters:
+        settings: Saved Home Assistant connection settings.
+        entity_ids: Entity ids whose history should be retrieved.
+        days: Number of days to include in the requested history window.
+    """
+    normalized_ids = [entity_id for entity_id in entity_ids if entity_id]
+    if not normalized_ids:
+        return {}
+
+    end_at = datetime.now(UTC)
+    start_at = end_at - timedelta(days=days)
+    history_path = (
+        f"/api/history/period/{start_at.isoformat()}?"
+        f"filter_entity_id={parse.quote(','.join(normalized_ids), safe=',.')}"
+        f"&end_time={parse.quote(end_at.isoformat(), safe=':')}"
+        "&minimal_response&no_attributes"
+    )
+    payload = _api_request(settings, history_path)
+    if not isinstance(payload, list):
+        raise HomeAssistantError("Unexpected Home Assistant response from /api/history/period.")
+
+    history_by_entity: dict[str, list[dict[str, str | None]]] = {}
+    for index, entity_history in enumerate(payload):
+        if not isinstance(entity_history, list) or not entity_history:
+            continue
+
+        series_entity_id = None
+        first_row = entity_history[0]
+        if isinstance(first_row, dict):
+            series_entity_id = first_row.get("entity_id")
+        if not series_entity_id and index < len(normalized_ids):
+            series_entity_id = normalized_ids[index]
+        if not series_entity_id:
+            continue
+
+        points: list[dict[str, str | None]] = []
+        for row in entity_history:
+            if not isinstance(row, dict):
+                continue
+            points.append(
+                {
+                    "last_changed": row.get("last_changed"),
+                    "state": row.get("state"),
+                }
+            )
+
+        history_by_entity[series_entity_id] = points
+
+    return history_by_entity
 
 
 def sync_entity_catalog(settings: HomeAssistantSettings) -> int:
