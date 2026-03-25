@@ -34,6 +34,11 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
 def _link_type_name_values(link_type: LinkType | None = None) -> dict[str, str]:
+    """Collect localized link-type names from the form or an existing record.
+
+    Parameters:
+        link_type: Existing link type being edited, if any.
+    """
     values: dict[str, str] = {}
     for locale, _label in SUPPORTED_LOCALES:
         field_name = f"name_{locale}"
@@ -47,6 +52,11 @@ def _link_type_name_values(link_type: LinkType | None = None) -> dict[str, str]:
 
 
 def _link_type_name_errors(names_by_locale: dict[str, str]) -> dict[str, str]:
+    """Validate that every configured locale has a link-type name.
+
+    Parameters:
+        names_by_locale: Localized names keyed by locale code.
+    """
     errors: dict[str, str] = {}
     for locale, label in SUPPORTED_LOCALES:
         if not names_by_locale.get(locale):
@@ -57,6 +67,7 @@ def _link_type_name_errors(names_by_locale: dict[str, str]) -> dict[str, str]:
 @bp.route("/")
 @login_required
 def index():
+    """Render the admin landing page for authorized users."""
     if current_user.has_permission("manage_users") or current_user.has_permission("manage_content"):
         return render_template(
             "admin_index.html",
@@ -68,6 +79,13 @@ def index():
 
 
 def _last_active_admin_guard(user: User, selected_roles: list[Role], is_active: bool) -> bool:
+    """Prevent removing or disabling the last active admin account.
+
+    Parameters:
+        user: User being edited.
+        selected_roles: Roles that will remain assigned after saving.
+        is_active: Whether the edited user should stay active.
+    """
     admin_role = Role.query.filter_by(name="admin").first()
     if admin_role is None:
         return False
@@ -92,6 +110,7 @@ def _last_active_admin_guard(user: User, selected_roles: list[Role], is_active: 
 @login_required
 @permission_required("manage_users")
 def users():
+    """Render the user administration list."""
     return render_template(
         "users.html",
         users=User.query.order_by(User.username).all(),
@@ -104,6 +123,7 @@ def users():
 @login_required
 @permission_required("manage_users")
 def create_user():
+    """Create a new Piantala user from the admin panel."""
     form = UserForm()
     roles = Role.query.order_by(Role.name).all()
     form.roles.choices = [(role.id, role.name) for role in roles]
@@ -135,6 +155,11 @@ def create_user():
 @login_required
 @permission_required("manage_users")
 def edit_user(user_id: int):
+    """Edit an existing user account.
+
+    Parameters:
+        user_id: Identifier of the user being edited.
+    """
     user = User.query.get_or_404(user_id)
     roles = Role.query.order_by(Role.name).all()
     form = UserForm(user=user, obj=user)
@@ -181,6 +206,7 @@ def edit_user(user_id: int):
 @login_required
 @permission_required("manage_users")
 def home_assistant_settings():
+    """Display and save Home Assistant integration settings."""
     ha_settings = HomeAssistantSettings.get_or_create()
     form = HomeAssistantSettingsForm(obj=ha_settings)
     if not form.is_submitted():
@@ -227,6 +253,7 @@ def home_assistant_settings():
 @login_required
 @permission_required("manage_users")
 def home_assistant_test():
+    """Test the saved Home Assistant connection settings."""
     ha_settings = HomeAssistantSettings.get_or_create()
     form = ActionForm(prefix="test")
     if form.validate_on_submit():
@@ -246,6 +273,7 @@ def home_assistant_test():
 @login_required
 @permission_required("manage_users")
 def home_assistant_sync():
+    """Synchronize the local Home Assistant entity catalog."""
     ha_settings = HomeAssistantSettings.get_or_create()
     form = ActionForm(prefix="sync")
     if form.validate_on_submit():
@@ -263,6 +291,7 @@ def home_assistant_sync():
 @login_required
 @permission_required("manage_users")
 def translations():
+    """Edit translation overrides stored in the database."""
     form = ActionForm(prefix="translations")
     entries = TranslationEntry.query.order_by(TranslationEntry.key, TranslationEntry.locale).all()
 
@@ -292,6 +321,7 @@ def translations():
 @login_required
 @permission_required("manage_content")
 def activity_types():
+    """Create and list activity types used in node history."""
     form = ActivityTypeForm()
 
     if form.validate_on_submit():
@@ -324,6 +354,11 @@ def activity_types():
 @login_required
 @permission_required("manage_content")
 def edit_activity_type(activity_type_id: int):
+    """Edit an existing activity type.
+
+    Parameters:
+        activity_type_id: Identifier of the activity type being edited.
+    """
     activity_type = ActivityType.query.get_or_404(activity_type_id)
     form = ActivityTypeForm(obj=activity_type)
 
@@ -355,6 +390,11 @@ def edit_activity_type(activity_type_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_activity_type(activity_type_id: int):
+    """Delete an activity type when it is no longer referenced.
+
+    Parameters:
+        activity_type_id: Identifier of the activity type to remove.
+    """
     activity_type = ActivityType.query.get_or_404(activity_type_id)
     form = DeleteForm()
     if form.validate_on_submit():
@@ -371,6 +411,7 @@ def delete_activity_type(activity_type_id: int):
 @login_required
 @permission_required("manage_content")
 def marker_colors():
+    """Create and list marker colors available for node hotspots."""
     form = MarkerColorForm()
 
     if form.validate_on_submit():
@@ -405,6 +446,11 @@ def marker_colors():
 @login_required
 @permission_required("manage_content")
 def edit_marker_color(marker_color_id: int):
+    """Edit one marker color and propagate its hex value to linked nodes.
+
+    Parameters:
+        marker_color_id: Identifier of the marker color being edited.
+    """
     marker_color = MarkerColor.query.get_or_404(marker_color_id)
     form = MarkerColorForm(obj=marker_color)
 
@@ -437,6 +483,11 @@ def edit_marker_color(marker_color_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_marker_color(marker_color_id: int):
+    """Delete a marker color when no nodes still use it.
+
+    Parameters:
+        marker_color_id: Identifier of the marker color to remove.
+    """
     marker_color = MarkerColor.query.get_or_404(marker_color_id)
     form = DeleteForm()
     if form.validate_on_submit():
@@ -453,6 +504,7 @@ def delete_marker_color(marker_color_id: int):
 @login_required
 @permission_required("manage_content")
 def link_types():
+    """Create and list link types used for external references."""
     form = LinkTypeForm()
     link_type_names = _link_type_name_values()
     link_type_name_errors: dict[str, str] = {}
@@ -495,6 +547,11 @@ def link_types():
 @login_required
 @permission_required("manage_content")
 def edit_link_type(link_type_id: int):
+    """Edit an existing link type and its localized names.
+
+    Parameters:
+        link_type_id: Identifier of the link type being edited.
+    """
     link_type = LinkType.query.get_or_404(link_type_id)
     form = LinkTypeForm(obj=link_type)
     link_type_names = _link_type_name_values(link_type)
@@ -537,6 +594,11 @@ def edit_link_type(link_type_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_link_type(link_type_id: int):
+    """Delete a link type when no node links still reference it.
+
+    Parameters:
+        link_type_id: Identifier of the link type to remove.
+    """
     link_type = LinkType.query.get_or_404(link_type_id)
     form = DeleteForm()
     if form.validate_on_submit():

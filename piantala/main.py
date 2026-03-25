@@ -57,10 +57,12 @@ MARKER_ICON_SUGGESTIONS = [
 
 
 def _settings() -> GardenSettings:
+    """Return the singleton site-wide settings record."""
     return GardenSettings.get_or_create()
 
 
 def _current_locale() -> str:
+    """Return the locale that should be used for the current request."""
     supported_locales = {code for code, _label in SUPPORTED_LOCALES}
     if current_user.is_authenticated:
         selected_locale = getattr(current_user, "preferred_locale", None)
@@ -70,6 +72,7 @@ def _current_locale() -> str:
 
 
 def _localized_labels() -> dict[str, str]:
+    """Build the translation map for the active locale."""
     locale = _current_locale()
     labels = {
         key: values.get(DEFAULT_LOCALE) or next(iter(values.values()))
@@ -92,6 +95,12 @@ def _localized_labels() -> dict[str, str]:
 
 
 def _flash_form_errors(form, fallback_message: str) -> None:
+    """Flash all form validation errors or a fallback message when none are attached.
+
+    Parameters:
+        form: The submitted form that may contain validation errors.
+        fallback_message: Message to show when the form did not collect field errors.
+    """
     flashed = False
     for field_errors in form.errors.values():
         for error in field_errors:
@@ -102,6 +111,12 @@ def _flash_form_errors(form, fallback_message: str) -> None:
 
 
 def _default_marker_color_id(node_type: str, marker_colors: list[MarkerColor]) -> int | None:
+    """Return the default marker color id for a node type.
+
+    Parameters:
+        node_type: Node classification such as plant, bed, or section.
+        marker_colors: Available marker colors ordered for user selection.
+    """
     desired_sort_order = DEFAULT_MARKER_COLOR_BY_NODE_TYPE.get(node_type)
     if desired_sort_order is not None:
         for marker_color in marker_colors:
@@ -111,10 +126,20 @@ def _default_marker_color_id(node_type: str, marker_colors: list[MarkerColor]) -
 
 
 def _clamp_percent(value: float) -> float:
+    """Keep a percentage value inside the 0-100 range.
+
+    Parameters:
+        value: Percentage value to normalize.
+    """
     return max(0.0, min(100.0, value))
 
 
 def _polygon_from_form(form: NodeForm) -> list[tuple[float, float]]:
+    """Read a four-corner area polygon from the node form.
+
+    Parameters:
+        form: Submitted node form containing the hidden corner fields.
+    """
     raw_points = [
         (form.area_corner_1_x.data, form.area_corner_1_y.data),
         (form.area_corner_2_x.data, form.area_corner_2_y.data),
@@ -127,6 +152,11 @@ def _polygon_from_form(form: NodeForm) -> list[tuple[float, float]]:
 
 
 def _polygon_centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
+    """Return the center point of a polygon.
+
+    Parameters:
+        points: Polygon points stored as percentage-based image coordinates.
+    """
     if not points:
         return (50.0, 50.0)
     xs = [x for x, _y in points]
@@ -135,6 +165,11 @@ def _polygon_centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
 
 
 def _polygon_bounds(points: list[tuple[float, float]]) -> tuple[float, float]:
+    """Return the width and height of a polygon's bounding box.
+
+    Parameters:
+        points: Polygon points stored as percentage-based image coordinates.
+    """
     if not points:
         return (18.0, 12.0)
     xs = [x for x, _y in points]
@@ -143,11 +178,22 @@ def _polygon_bounds(points: list[tuple[float, float]]) -> tuple[float, float]:
 
 
 def _set_default_photo(node: GardenNode, selected_photo: NodePhoto | None) -> None:
+    """Mark one photo as default and clear the flag on all other node photos.
+
+    Parameters:
+        node: Node whose photo collection should be updated.
+        selected_photo: Photo that should become the default image, if any.
+    """
     for photo in node.photos:
         photo.is_default = selected_photo is not None and photo.id == selected_photo.id
 
 
 def _annual_direct_children(node: GardenNode) -> list[GardenNode]:
+    """Return annual children directly below a node.
+
+    Parameters:
+        node: Parent node whose immediate children should be inspected.
+    """
     return [child for child in node.children if child.life_cycle == "annual"]
 
 
@@ -158,6 +204,14 @@ def _clone_scope_candidates(
     year_range: int,
     target_year: int,
 ) -> list[GardenNode]:
+    """Return annual cultivation nodes that can be cloned into a target year.
+
+    Parameters:
+        node: Parent node that will receive the cloned cultivation.
+        source_section_id: Optional section filter for narrowing clone candidates.
+        year_range: Number of years back from the target year to include.
+        target_year: Cultivation year that the new clone will belong to.
+    """
     candidate_level = node.level + 1
     lower_year = max(target_year - year_range, 0)
     candidates = GardenNode.query.filter_by(level=candidate_level, life_cycle="annual").all()
@@ -185,6 +239,13 @@ def _clone_scope_candidates(
 
 
 def _copy_clone_position(source: GardenNode, target: GardenNode, *, preserve_existing: bool = False) -> None:
+    """Copy hotspot or area placement from one node to another.
+
+    Parameters:
+        source: Node that already contains the desired placement data.
+        target: Node that should receive the copied placement data.
+        preserve_existing: When True, keep any existing target placement.
+    """
     if preserve_existing and (
         target.map_x is not None
         or target.map_y is not None
@@ -222,6 +283,13 @@ def _copy_clone_position(source: GardenNode, target: GardenNode, *, preserve_exi
 
 
 def _clone_cultivation_node(source: GardenNode, target_parent: GardenNode, target_year: int) -> GardenNode:
+    """Clone an annual cultivation subtree into a different cultivation year.
+
+    Parameters:
+        source: Existing cultivation node that acts as the template.
+        target_parent: Parent node that will own the cloned cultivation.
+        target_year: Cultivation year assigned to the cloned annual records.
+    """
     planting_date = source.planting_date
     if planting_date is not None:
         try:
@@ -290,6 +358,11 @@ def _clone_cultivation_node(source: GardenNode, target_parent: GardenNode, targe
 
 
 def _point_positions_from_json(value: str | None) -> list[tuple[float, float]]:
+    """Parse additional point positions stored as JSON.
+
+    Parameters:
+        value: JSON string containing a list of x/y position dictionaries.
+    """
     if not value:
         return []
     try:
@@ -319,6 +392,7 @@ def _point_positions_from_json(value: str | None) -> list[tuple[float, float]]:
 @login_required
 @permission_required("view_dashboard")
 def index():
+    """Render the map-first dashboard with top-level locations."""
     settings = _settings()
     top_level_locations = GardenNode.query.filter_by(parent_id=None).order_by(
         GardenNode.sort_order,
@@ -347,6 +421,7 @@ def index():
 @login_required
 @permission_required("manage_content")
 def map_settings():
+    """Display and save site-wide map and appearance settings."""
     settings = _settings()
     form = MapSettingsForm(obj=settings)
 
@@ -381,6 +456,7 @@ def map_settings():
 @login_required
 @permission_required("manage_content")
 def create_root_node():
+    """Create a new top-level area node."""
     return _upsert_node(parent=None, node=None)
 
 
@@ -388,10 +464,22 @@ def create_root_node():
 @login_required
 @permission_required("view_dashboard")
 def node_detail(node_id: int):
+    """Render a node detail page with children, media, activities, and tools.
+
+    Parameters:
+        node_id: Identifier of the node to display.
+    """
     node = GardenNode.query.get_or_404(node_id)
     show_dead_children = request.args.get("show_dead") == "1"
     annual_children = _annual_direct_children(node)
-    selected_year = request.args.get("year", type=int)
+    raw_year = request.args.get("year")
+    selected_year = request.args.get("year", type=int) if raw_year not in {None, ""} else None
+    available_cultivation_years = sorted(
+        {child.effective_cultivation_year for child in annual_children if child.effective_cultivation_year is not None},
+        reverse=True,
+    )
+    if raw_year is None and available_cultivation_years:
+        selected_year = available_cultivation_years[0]
     ordered_photos = sorted(
         node.photos,
         key=lambda photo: (photo.taken_at, photo.id),
@@ -438,10 +526,6 @@ def node_detail(node_id: int):
         for entry in HomeAssistantEntityCatalog.query.all()
     }
     current_year = datetime.now(UTC).year
-    available_cultivation_years = sorted(
-        {child.effective_cultivation_year for child in annual_children if child.effective_cultivation_year is not None},
-        reverse=True,
-    )
     source_sections = GardenNode.query.filter_by(level=2).order_by(GardenNode.title).all()
     current_section = node.section_ancestor
     selected_source_section_id = request.args.get("clone_section_id", type=int)
@@ -497,6 +581,11 @@ def node_detail(node_id: int):
 @login_required
 @permission_required("manage_content")
 def clone_cultivations(node_id: int):
+    """Clone selected annual cultivations into a target year.
+
+    Parameters:
+        node_id: Identifier of the section or bed receiving the clones.
+    """
     node = GardenNode.query.get_or_404(node_id)
     if node.level not in {2, 3}:
         flash("Cultivation cloning is only available on sections and beds.", "warning")
@@ -560,6 +649,11 @@ def clone_cultivations(node_id: int):
 @login_required
 @permission_required("manage_content")
 def edit_node(node_id: int):
+    """Edit an existing garden node.
+
+    Parameters:
+        node_id: Identifier of the node to update.
+    """
     node = GardenNode.query.get_or_404(node_id)
     return _upsert_node(parent=node.parent, node=node)
 
@@ -568,6 +662,11 @@ def edit_node(node_id: int):
 @login_required
 @permission_required("manage_content")
 def create_child_node(node_id: int):
+    """Create a new child node under an existing parent.
+
+    Parameters:
+        node_id: Identifier of the parent node.
+    """
     parent = GardenNode.query.get_or_404(node_id)
     if not parent.can_have_children():
         flash("This node is already at level 4 and cannot have children.", "warning")
@@ -576,6 +675,12 @@ def create_child_node(node_id: int):
 
 
 def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
+    """Create or update a node and its placement data.
+
+    Parameters:
+        parent: Parent node for a new child, or None for a root node.
+        node: Existing node being edited, or None when creating a new node.
+    """
     level = 1 if parent is None else parent.level + 1
     settings = _settings()
     use_geo_map = parent is None and settings.map_provider in {
@@ -791,6 +896,11 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
 @login_required
 @permission_required("manage_content")
 def delete_node(node_id: int):
+    """Delete a node after delete-form confirmation.
+
+    Parameters:
+        node_id: Identifier of the node to remove.
+    """
     node = GardenNode.query.get_or_404(node_id)
     parent_id = node.parent_id
     form = DeleteForm()
@@ -810,6 +920,11 @@ def delete_node(node_id: int):
 @login_required
 @permission_required("manage_content")
 def add_photo(node_id: int):
+    """Upload one or more photos for a node.
+
+    Parameters:
+        node_id: Identifier of the node receiving the uploaded photos.
+    """
     node = GardenNode.query.get_or_404(node_id)
     form = PhotoForm(prefix="photo")
 
@@ -844,6 +959,11 @@ def add_photo(node_id: int):
 @login_required
 @permission_required("manage_content")
 def add_activity(node_id: int):
+    """Create a new activity entry for a node.
+
+    Parameters:
+        node_id: Identifier of the node receiving the activity.
+    """
     node = GardenNode.query.get_or_404(node_id)
     form = _activity_form()
 
@@ -884,6 +1004,11 @@ def add_activity(node_id: int):
 @login_required
 @permission_required("manage_content")
 def edit_activity(activity_id: int):
+    """Edit an existing node activity.
+
+    Parameters:
+        activity_id: Identifier of the activity to update.
+    """
     activity = NodeActivity.query.get_or_404(activity_id)
     form = _activity_form(activity)
 
@@ -931,6 +1056,11 @@ def edit_activity(activity_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_activity(activity_id: int):
+    """Delete an activity from a node's history.
+
+    Parameters:
+        activity_id: Identifier of the activity to remove.
+    """
     activity = NodeActivity.query.get_or_404(activity_id)
     node_id = activity.node_id
     form = DeleteForm()
@@ -945,6 +1075,11 @@ def delete_activity(activity_id: int):
 @login_required
 @permission_required("manage_content")
 def edit_photo(photo_id: int):
+    """Edit metadata for a node photo.
+
+    Parameters:
+        photo_id: Identifier of the photo to update.
+    """
     photo = NodePhoto.query.get_or_404(photo_id)
     form = PhotoEditForm(obj=photo)
 
@@ -978,6 +1113,11 @@ def edit_photo(photo_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_photo(photo_id: int):
+    """Delete a photo and promote a replacement default when needed.
+
+    Parameters:
+        photo_id: Identifier of the photo to remove.
+    """
     photo = NodePhoto.query.get_or_404(photo_id)
     node_id = photo.node_id
     node = photo.node
@@ -1003,6 +1143,11 @@ def delete_photo(photo_id: int):
 @login_required
 @permission_required("manage_content")
 def add_link(node_id: int):
+    """Attach an external reference link to a node.
+
+    Parameters:
+        node_id: Identifier of the node receiving the link.
+    """
     node = GardenNode.query.get_or_404(node_id)
     form = _external_link_form()
 
@@ -1031,6 +1176,11 @@ def add_link(node_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_link(link_id: int):
+    """Delete an external link from a node.
+
+    Parameters:
+        link_id: Identifier of the link to remove.
+    """
     link = NodeExternalLink.query.get_or_404(link_id)
     node_id = link.node_id
     form = DeleteForm()
@@ -1045,6 +1195,11 @@ def delete_link(link_id: int):
 @login_required
 @permission_required("manage_content")
 def edit_link(link_id: int):
+    """Edit an existing external link.
+
+    Parameters:
+        link_id: Identifier of the link to update.
+    """
     link = NodeExternalLink.query.get_or_404(link_id)
     form = _external_link_form()
 
@@ -1081,6 +1236,11 @@ def edit_link(link_id: int):
 @login_required
 @permission_required("manage_content")
 def add_entity(node_id: int):
+    """Link a Home Assistant entity to a node.
+
+    Parameters:
+        node_id: Identifier of the node receiving the entity link.
+    """
     node = GardenNode.query.get_or_404(node_id)
     form = _home_assistant_entity_form()
 
@@ -1127,6 +1287,11 @@ def add_entity(node_id: int):
 @login_required
 @permission_required("manage_content")
 def delete_entity(entity_id: int):
+    """Delete a Home Assistant entity link from a node.
+
+    Parameters:
+        entity_id: Identifier of the linked entity record to remove.
+    """
     entity = NodeHomeAssistantEntity.query.get_or_404(entity_id)
     node_id = entity.node_id
     form = DeleteForm()
@@ -1141,6 +1306,11 @@ def delete_entity(entity_id: int):
 @login_required
 @permission_required("manage_content")
 def edit_entity(entity_id: int):
+    """Edit a Home Assistant entity link.
+
+    Parameters:
+        entity_id: Identifier of the linked entity record to update.
+    """
     entity = NodeHomeAssistantEntity.query.get_or_404(entity_id)
     form = _home_assistant_entity_form()
 
@@ -1200,6 +1370,7 @@ def edit_entity(entity_id: int):
 
 
 def _home_assistant_entity_form() -> HomeAssistantEntityForm:
+    """Build the Home Assistant entity form with discovered catalog choices."""
     form = HomeAssistantEntityForm(prefix="entity")
     catalog_entries = HomeAssistantEntityCatalog.query.order_by(
         HomeAssistantEntityCatalog.domain,
@@ -1220,6 +1391,11 @@ def _home_assistant_entity_form() -> HomeAssistantEntityForm:
 
 
 def _activity_form(activity: NodeActivity | None = None) -> NodeActivityForm:
+    """Build the activity form with the current activity type choices.
+
+    Parameters:
+        activity: Existing activity being edited, if any.
+    """
     types = ActivityType.query.order_by(ActivityType.sort_order, ActivityType.name).all()
     form = NodeActivityForm(
         prefix="activity",
@@ -1232,6 +1408,7 @@ def _activity_form(activity: NodeActivity | None = None) -> NodeActivityForm:
 
 
 def _external_link_form() -> ExternalLinkForm:
+    """Build the external-link form with localized link type choices."""
     link_types = LinkType.query.order_by(LinkType.sort_order, LinkType.name).all()
     form = ExternalLinkForm(
         prefix="link",
@@ -1246,6 +1423,11 @@ def _external_link_form() -> ExternalLinkForm:
 
 
 def _entity_choice_label(entry: HomeAssistantEntityCatalog) -> str:
+    """Format one Home Assistant catalog entry for a dropdown option.
+
+    Parameters:
+        entry: Catalog entry to represent in the select field.
+    """
     name = entry.friendly_name or entry.entity_id
     state = entry.state or "unknown"
     unit = f" {entry.unit_of_measurement}" if entry.unit_of_measurement else ""

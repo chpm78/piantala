@@ -13,6 +13,7 @@ from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 
 def create_app() -> Flask:
+    """Create and configure the Flask application instance."""
     load_dotenv()
 
     app = Flask(__name__, instance_relative_config=True)
@@ -39,16 +40,23 @@ def create_app() -> Flask:
 
     @app.get("/healthz")
     def healthcheck() -> tuple[dict[str, str], int]:
+        """Return a lightweight health response for Docker and uptime checks."""
         return {"status": "ok"}, 200
 
     @login_manager.user_loader
     def load_user(user_id: str) -> User | None:
+        """Load a logged-in user from the Flask-Login session id.
+
+        Parameters:
+            user_id: User identifier stored in the session cookie.
+        """
         if not user_id.isdigit():
             return None
         return db.session.get(User, int(user_id))
 
     @app.cli.command("init-db")
     def init_db_command() -> None:
+        """Create database tables, run schema sync, and seed system records."""
         db.create_all()
         sync_schema()
         ensure_seed_data()
@@ -59,6 +67,13 @@ def create_app() -> Flask:
     @click.option("--email", default="", help="Optional email address.")
     @click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
     def create_admin_command(username: str, email: str, password: str) -> None:
+        """Create the first admin user from the command line.
+
+        Parameters:
+            username: Login name assigned to the new admin user.
+            email: Optional email address for the new admin user.
+            password: Plain-text password entered via the CLI prompt.
+        """
         db.create_all()
         sync_schema()
         ensure_seed_data()
@@ -85,6 +100,7 @@ def create_app() -> Flask:
 
     @app.context_processor
     def inject_globals() -> dict[str, str | bool]:
+        """Expose commonly used settings and translation helpers to templates."""
         site_name = "Piantala"
         load_leaflet = False
         app_theme = "earth"
@@ -120,6 +136,12 @@ def create_app() -> Flask:
             pass
 
         def tr(key: str, default: str | None = None) -> str:
+            """Resolve one translation key for templates.
+
+            Parameters:
+                key: Translation key requested by the template.
+                default: Fallback text used when no translation is available.
+            """
             return localized_entries.get(key) or fallback_entries.get(key) or default or key
 
         return {

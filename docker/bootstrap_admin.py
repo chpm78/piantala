@@ -8,6 +8,7 @@ from piantala.models import Role, User
 
 
 def main() -> None:
+    """Create the initial admin user from Docker environment variables."""
     username = os.getenv("PIANTALA_ADMIN_USERNAME", "").strip()
     email = os.getenv("PIANTALA_ADMIN_EMAIL", "").strip().lower()
     password = os.getenv("PIANTALA_ADMIN_PASSWORD", "").strip()

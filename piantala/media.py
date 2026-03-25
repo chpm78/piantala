@@ -14,6 +14,11 @@ EXIF_DATETIME_FORMAT = "%Y:%m:%d %H:%M:%S"
 
 
 def filename_stem(filename: str | None) -> str:
+    """Convert an uploaded filename into a human-friendly default title.
+
+    Parameters:
+        filename: Original file name supplied by the user agent.
+    """
     if not filename:
         return "Photo"
     stem = Path(filename).stem.replace("_", " ").replace("-", " ").strip()
@@ -21,6 +26,11 @@ def filename_stem(filename: str | None) -> str:
 
 
 def extract_exif_taken_at(file_storage) -> datetime | None:
+    """Read the capture timestamp from EXIF metadata when available.
+
+    Parameters:
+        file_storage: Uploaded image file to inspect.
+    """
     if Image is None or file_storage is None:
         return None
 

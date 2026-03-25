@@ -35,17 +35,34 @@ class HomeAssistantState:
 
 
 def _build_url(base_url: str, path: str) -> str:
+    """Join a Home Assistant base URL and API path safely.
+
+    Parameters:
+        base_url: Root URL configured for Home Assistant.
+        path: API path that should be resolved against the base URL.
+    """
     normalized = base_url.rstrip("/") + "/"
     return parse.urljoin(normalized, path.lstrip("/"))
 
 
 def _ssl_context(verify_ssl: bool):
+    """Return an SSL context matching the configured certificate policy.
+
+    Parameters:
+        verify_ssl: Whether HTTPS certificates should be validated.
+    """
     if verify_ssl:
         return None
     return ssl._create_unverified_context()
 
 
 def _api_request(settings: HomeAssistantSettings, path: str):
+    """Perform one authenticated Home Assistant API request.
+
+    Parameters:
+        settings: Saved Home Assistant connection settings.
+        path: API path to request from the Home Assistant server.
+    """
     if not settings.is_configured:
         raise HomeAssistantError("Home Assistant is not configured yet.")
 
@@ -97,6 +114,11 @@ def _api_request(settings: HomeAssistantSettings, path: str):
 
 
 def test_connection(settings: HomeAssistantSettings) -> str:
+    """Call the Home Assistant root API endpoint and return its status text.
+
+    Parameters:
+        settings: Saved Home Assistant connection settings.
+    """
     payload = _api_request(settings, "/api/")
     if isinstance(payload, dict) and "message" in payload:
         return str(payload["message"])
@@ -104,6 +126,11 @@ def test_connection(settings: HomeAssistantSettings) -> str:
 
 
 def fetch_states(settings: HomeAssistantSettings) -> list[HomeAssistantState]:
+    """Fetch entity states from Home Assistant and normalize them for Piantala.
+
+    Parameters:
+        settings: Saved Home Assistant connection settings.
+    """
     payload = _api_request(settings, "/api/states")
     if not isinstance(payload, list):
         raise HomeAssistantError("Unexpected Home Assistant response from /api/states.")
@@ -133,6 +160,11 @@ def fetch_states(settings: HomeAssistantSettings) -> list[HomeAssistantState]:
 
 
 def sync_entity_catalog(settings: HomeAssistantSettings) -> int:
+    """Refresh the local Home Assistant entity catalog from the remote server.
+
+    Parameters:
+        settings: Saved Home Assistant connection settings.
+    """
     states = fetch_states(settings)
     now = datetime.now(UTC)
 

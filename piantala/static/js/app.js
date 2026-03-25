@@ -1,3 +1,10 @@
+/**
+ * Update hidden coordinate fields and visible feedback for image click pickers.
+ *
+ * @param {HTMLElement} container Picker container holding field references.
+ * @param {number} x Horizontal image percentage.
+ * @param {number} y Vertical image percentage.
+ */
 function updateImagePickerCoordinates(container, x, y) {
   const xInput = document.getElementById(container.dataset.xInput || "");
   const yInput = document.getElementById(container.dataset.yInput || "");
@@ -17,6 +24,9 @@ function updateImagePickerCoordinates(container, x, y) {
   }
 }
 
+/**
+ * Show only the settings panel that matches the selected homepage map provider.
+ */
 function syncProviderPanels() {
   const providerSelect = document.querySelector("[data-map-provider-select='true']");
   if (!providerSelect) {
@@ -30,6 +40,9 @@ function syncProviderPanels() {
   });
 }
 
+/**
+ * Toggle node form fields based on node type and life cycle.
+ */
 function syncNodeTypeFields() {
   const nodeTypeSelect = document.querySelector("select[name='node_type']");
   const lifeCycleSelect = document.querySelector("select[name='life_cycle']");
@@ -48,6 +61,9 @@ function syncNodeTypeFields() {
   });
 }
 
+/**
+ * Keep the cultivation year aligned with the planting date for annual records.
+ */
 function syncCultivationYearFromPlantingDate() {
   const nodeTypeSelect = document.querySelector("select[name='node_type']");
   const lifeCycleSelect = document.querySelector("select[name='life_cycle']");
@@ -78,6 +94,9 @@ function syncCultivationYearFromPlantingDate() {
   }
 }
 
+/**
+ * Refresh the marker preview shown in the node editor.
+ */
 function syncMarkerPreview() {
   const preview = document.getElementById("marker-preview");
   if (!preview) {
@@ -116,10 +135,22 @@ function syncMarkerPreview() {
   });
 }
 
+/**
+ * Format a percentage value for storage and UI display.
+ *
+ * @param {number|string} value Percentage value to format.
+ * @returns {string}
+ */
 function formatPercent(value) {
   return Number.parseFloat(value).toFixed(2);
 }
 
+/**
+ * Parse a numeric percentage from an input field.
+ *
+ * @param {HTMLInputElement|null} input Input element holding a percentage value.
+ * @returns {number|null}
+ */
 function parseNullablePercent(input) {
   if (!input) {
     return null;
@@ -128,6 +159,15 @@ function parseNullablePercent(input) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Create a default four-corner polygon around a center point.
+ *
+ * @param {number} centerX Horizontal center percentage.
+ * @param {number} centerY Vertical center percentage.
+ * @param {number} width Area width percentage.
+ * @param {number} height Area height percentage.
+ * @returns {Array<{x: number, y: number}>}
+ */
 function buildDefaultPolygon(centerX, centerY, width, height) {
   const halfWidth = (width || 18) / 2;
   const halfHeight = (height || 12) / 2;
@@ -151,6 +191,12 @@ function buildDefaultPolygon(centerX, centerY, width, height) {
   ];
 }
 
+/**
+ * Read the four stored area corners from the node editor form.
+ *
+ * @param {HTMLElement} container Overlay editor container.
+ * @returns {Array<{x: number, y: number}>}
+ */
 function readOverlayPolygon(container) {
   const points = [];
   for (let index = 1; index <= 4; index += 1) {
@@ -164,6 +210,11 @@ function readOverlayPolygon(container) {
   return points;
 }
 
+/**
+ * Write a polygon back to the hidden area corner fields.
+ *
+ * @param {Array<{x: number, y: number}>} points Polygon points to persist.
+ */
 function writeOverlayPolygon(points) {
   points.forEach((point, index) => {
     const xInput = document.getElementById(`area_corner_${index + 1}_x`);
@@ -186,6 +237,13 @@ function writeOverlayPolygon(points) {
   }
 }
 
+/**
+ * Create one draggable point marker preview for the overlay editor.
+ *
+ * @param {{x: number, y: number}} position Marker position as image percentages.
+ * @param {number} index Zero-based point index.
+ * @returns {HTMLButtonElement}
+ */
 function createPointMarkerElement(position, index) {
   const nodeType = document.querySelector("select[name='node_type']")?.value || "custom";
   const markerColorSelect = document.getElementById("marker_color_id");
@@ -220,6 +278,12 @@ function createPointMarkerElement(position, index) {
   return button;
 }
 
+/**
+ * Read point hotspot positions from the hidden JSON field or fallback inputs.
+ *
+ * @param {HTMLElement} container Overlay editor container.
+ * @returns {Array<{x: number, y: number}>}
+ */
 function readPointPositionsFromHidden(container) {
   const positionsInput = document.getElementById(container.dataset.positionsInput || "");
   const xInput = document.getElementById(container.dataset.xInput || "");
@@ -245,6 +309,12 @@ function readPointPositionsFromHidden(container) {
   return x !== null && y !== null ? [{ x, y }] : [];
 }
 
+/**
+ * Persist point hotspot positions back into the node form fields.
+ *
+ * @param {HTMLElement} container Overlay editor container.
+ * @param {Array<{x: number, y: number}>} positions Point positions to store.
+ */
 function writePointPositions(container, positions) {
   const positionsInput = document.getElementById(container.dataset.positionsInput || "");
   const xInput = document.getElementById(container.dataset.xInput || "");
@@ -265,6 +335,11 @@ function writePointPositions(container, positions) {
   }
 }
 
+/**
+ * Redraw the overlay editor preview for point or area mode.
+ *
+ * @param {HTMLElement} container Overlay editor container.
+ */
 function syncOverlayEditorPreview(container) {
   const shapeInput = document.getElementById(container.dataset.shapeInput || "");
   const xInput = document.getElementById(container.dataset.xInput || "");
@@ -354,6 +429,9 @@ function syncOverlayEditorPreview(container) {
   }
 }
 
+/**
+ * Wire drag-and-drop behavior for all overlay editors on the page.
+ */
 function initOverlayEditors() {
   document.querySelectorAll("[data-overlay-editor='true']").forEach((container) => {
     if (container.dataset.overlayEditorReady === "true") {
@@ -637,16 +715,35 @@ document.addEventListener("change", (event) => {
   }
 });
 
+/**
+ * Parse a floating-point value with a fallback.
+ *
+ * @param {string|number|undefined|null} value Value to parse.
+ * @param {*} fallback Value returned when parsing fails.
+ * @returns {*}
+ */
 function parseFloatOrDefault(value, fallback) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * Parse an integer value with a fallback.
+ *
+ * @param {string|number|undefined|null} value Value to parse.
+ * @param {*} fallback Value returned when parsing fails.
+ * @returns {*}
+ */
 function parseIntOrDefault(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * Initialize the Google overview map used on the dashboard.
+ *
+ * @param {HTMLElement} element DOM element containing map configuration.
+ */
 function initOverviewMap(element) {
   const center = {
     lat: parseFloatOrDefault(element.dataset.centerLat, 0),
@@ -673,6 +770,11 @@ function initOverviewMap(element) {
   });
 }
 
+/**
+ * Initialize the Google picker map used to choose area coordinates.
+ *
+ * @param {HTMLElement} element DOM element containing map configuration.
+ */
 function initPickerMap(element) {
   const latInput = document.getElementById(element.dataset.latInput || "");
   const lngInput = document.getElementById(element.dataset.lngInput || "");
@@ -721,6 +823,12 @@ function initPickerMap(element) {
   });
 }
 
+/**
+ * Return the Leaflet tile layer configuration for the selected provider.
+ *
+ * @param {string} provider Leaflet provider key.
+ * @returns {{url: string, options: object}}
+ */
 function getLeafletTileConfig(provider) {
   if (provider === "opentopomap") {
     return {
@@ -743,6 +851,11 @@ function getLeafletTileConfig(provider) {
   };
 }
 
+/**
+ * Initialize the Leaflet overview map used on the dashboard.
+ *
+ * @param {HTMLElement} element DOM element containing map configuration.
+ */
 function initLeafletOverviewMap(element) {
   const center = [
     parseFloatOrDefault(element.dataset.centerLat, 0),
@@ -765,6 +878,11 @@ function initLeafletOverviewMap(element) {
   });
 }
 
+/**
+ * Initialize the Leaflet picker map used to choose area coordinates.
+ *
+ * @param {HTMLElement} element DOM element containing map configuration.
+ */
 function initLeafletPickerMap(element) {
   const latInput = document.getElementById(element.dataset.latInput || "");
   const lngInput = document.getElementById(element.dataset.lngInput || "");
@@ -797,6 +915,9 @@ function initLeafletPickerMap(element) {
   });
 }
 
+/**
+ * Initialize every pending Google map on the current page.
+ */
 window.initPiantalaGoogleMaps = function initPiantalaGoogleMaps() {
   document.querySelectorAll("[data-google-map]").forEach((element) => {
     if (element.dataset.mapReady === "true") {
@@ -815,6 +936,9 @@ window.initPiantalaGoogleMaps = function initPiantalaGoogleMaps() {
   });
 };
 
+/**
+ * Initialize every pending Leaflet map on the current page.
+ */
 window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
   if (!window.L) {
     return;
@@ -837,6 +961,9 @@ window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
   });
 };
 
+/**
+ * Initialize node-type-dependent UI helpers on forms.
+ */
 window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
   syncMarkerPreview();

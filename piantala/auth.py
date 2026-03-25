@@ -13,6 +13,7 @@ bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
 def _settings_or_none():
+    """Return garden settings when the table is available, otherwise None."""
     try:
         if inspect(db.engine).has_table(GardenSettings.__tablename__):
             return GardenSettings.get_or_create()
@@ -23,6 +24,7 @@ def _settings_or_none():
 
 @bp.route("/login", methods=["GET", "POST"])
 def login():
+    """Authenticate a user and record a login history entry."""
     if current_user.is_authenticated:
         return redirect(url_for("main.index"))
 
@@ -52,6 +54,7 @@ def login():
 @bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
+    """End the current user session."""
     logout_user()
     flash("Logged out.", "success")
     return redirect(url_for("auth.login"))
@@ -60,6 +63,7 @@ def logout():
 @bp.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
+    """Let a logged-in user update profile-level preferences."""
     form = ProfileLanguageForm(obj=current_user)
 
     if form.validate_on_submit():

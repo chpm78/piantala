@@ -109,10 +109,22 @@ class UserForm(FlaskForm):
     submit = SubmitField("Save user")
 
     def __init__(self, *args, user: User | None = None, **kwargs) -> None:
+        """Store the edited user so uniqueness checks can ignore the same record.
+
+        Parameters:
+            *args: Positional arguments forwarded to the WTForms base class.
+            user: Existing user being edited, if any.
+            **kwargs: Keyword arguments forwarded to the WTForms base class.
+        """
         super().__init__(*args, **kwargs)
         self.user = user
 
     def validate(self, extra_validators=None) -> bool:
+        """Validate user data, including unique username and optional email.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
         if not super().validate(extra_validators=extra_validators):
             return False
 
@@ -155,12 +167,27 @@ class HomeAssistantSettingsForm(FlaskForm):
     submit = SubmitField("Save Home Assistant settings")
 
     def validate_base_url(self, field) -> None:
+        """Validate the external Home Assistant URL field.
+
+        Parameters:
+            field: WTForms field instance being validated.
+        """
         self._validate_url_field(field)
 
     def validate_internal_url(self, field) -> None:
+        """Validate the internal Home Assistant URL field.
+
+        Parameters:
+            field: WTForms field instance being validated.
+        """
         self._validate_url_field(field)
 
     def validate(self, extra_validators=None) -> bool:
+        """Validate Home Assistant settings as a complete configuration.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
         if not super().validate(extra_validators=extra_validators):
             return False
 
@@ -184,6 +211,11 @@ class HomeAssistantSettingsForm(FlaskForm):
 
     @staticmethod
     def _validate_url_field(field) -> None:
+        """Ensure a URL field contains a full HTTP or HTTPS URL.
+
+        Parameters:
+            field: WTForms field instance being validated.
+        """
         value = (field.data or "").strip()
         if not value:
             return
@@ -386,6 +418,11 @@ class NodeForm(FlaskForm):
     submit = SubmitField("Save node")
 
     def validate(self, extra_validators=None) -> bool:
+        """Validate node data, including annual cultivation year rules.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
         if not super().validate(extra_validators=extra_validators):
             return False
 
@@ -446,10 +483,22 @@ class NodeActivityForm(FlaskForm):
     submit = SubmitField("Save activity")
 
     def __init__(self, *args, activity_types_by_id: dict[int, object] | None = None, **kwargs) -> None:
+        """Store activity type metadata used during cross-field validation.
+
+        Parameters:
+            *args: Positional arguments forwarded to the WTForms base class.
+            activity_types_by_id: Activity type lookup keyed by database id.
+            **kwargs: Keyword arguments forwarded to the WTForms base class.
+        """
         super().__init__(*args, **kwargs)
         self.activity_types_by_id = activity_types_by_id or {}
 
     def validate(self, extra_validators=None) -> bool:
+        """Validate activity data, including required kilogram quantities.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
         if not super().validate(extra_validators=extra_validators):
             return False
 
@@ -477,10 +526,22 @@ class ExternalLinkForm(FlaskForm):
     submit = SubmitField("Add link")
 
     def __init__(self, *args, link_types_by_id: dict[int, object] | None = None, **kwargs) -> None:
+        """Store link type metadata used during cross-field validation.
+
+        Parameters:
+            *args: Positional arguments forwarded to the WTForms base class.
+            link_types_by_id: Link type lookup keyed by database id.
+            **kwargs: Keyword arguments forwarded to the WTForms base class.
+        """
         super().__init__(*args, **kwargs)
         self.link_types_by_id = link_types_by_id or {}
 
     def validate(self, extra_validators=None) -> bool:
+        """Validate link data against the selected link type rules.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
         if not super().validate(extra_validators=extra_validators):
             return False
 

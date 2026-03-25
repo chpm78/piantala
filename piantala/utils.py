@@ -19,6 +19,12 @@ LEVEL_TYPE_DEFAULTS = {
 
 
 def save_uploaded_file(file_storage: FileStorage | None, prefix: str) -> str | None:
+    """Store an uploaded file in the configured upload directory.
+
+    Parameters:
+        file_storage: Uploaded file object provided by Flask/Werkzeug.
+        prefix: Prefix added to the generated unique file name.
+    """
     if file_storage is None or not file_storage.filename:
         return None
 
@@ -33,9 +39,25 @@ def save_uploaded_file(file_storage: FileStorage | None, prefix: str) -> str | N
 
 
 def permission_required(permission_code: str):
+    """Create a decorator that blocks users missing a permission.
+
+    Parameters:
+        permission_code: Permission identifier required to access the view.
+    """
     def decorator(view):
+        """Wrap a view function with a permission check.
+
+        Parameters:
+            view: Flask view function being protected.
+        """
         @wraps(view)
         def wrapped_view(*args, **kwargs):
+            """Abort unauthorized requests before reaching the wrapped view.
+
+            Parameters:
+                *args: Positional arguments forwarded to the wrapped view.
+                **kwargs: Keyword arguments forwarded to the wrapped view.
+            """
             if not current_user.is_authenticated:
                 abort(401)
             if not current_user.has_permission(permission_code):
@@ -49,5 +71,9 @@ def permission_required(permission_code: str):
 
 
 def default_node_type(level: int) -> str:
-    return LEVEL_TYPE_DEFAULTS.get(level, "custom")
+    """Return the default node type for a hierarchy level.
 
+    Parameters:
+        level: Depth in the garden hierarchy starting from the root area.
+    """
+    return LEVEL_TYPE_DEFAULTS.get(level, "custom")

@@ -43,6 +43,13 @@ LEGACY_ANNUAL_CULTIVATION_YEAR = 2025
 
 
 def _clamp_percent(value: float, minimum: float = 0.0, maximum: float = 100.0) -> float:
+    """Clamp a percentage value to a configured range.
+
+    Parameters:
+        value: Percentage value to normalize.
+        minimum: Lowest allowed value.
+        maximum: Highest allowed value.
+    """
     return max(minimum, min(maximum, value))
 
 
@@ -112,16 +119,31 @@ class User(UserMixin, AuditMixin, db.Model):
     )
 
     def set_password(self, password: str) -> None:
+        """Hash and store a user's password.
+
+        Parameters:
+            password: Plain-text password supplied by the user or admin.
+        """
         from werkzeug.security import generate_password_hash
 
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
+        """Verify a plain-text password against the stored hash.
+
+        Parameters:
+            password: Plain-text password to verify.
+        """
         from werkzeug.security import check_password_hash
 
         return check_password_hash(self.password_hash, password)
 
     def has_permission(self, permission_code: str) -> bool:
+        """Return whether the user has a specific permission code.
+
+        Parameters:
+            permission_code: Permission identifier to look for in the user's roles.
+        """
         return any(
             permission.code == permission_code
             for role in self.roles
@@ -129,6 +151,7 @@ class User(UserMixin, AuditMixin, db.Model):
         )
 
     def role_names(self) -> list[str]:
+        """Return the user's role names sorted alphabetically."""
         return sorted(role.name for role in self.roles)
 
 
@@ -159,6 +182,7 @@ class GardenSettings(AuditMixin, db.Model):
 
     @classmethod
     def get_or_create(cls) -> "GardenSettings":
+        """Return the singleton garden settings row, creating it if needed."""
         settings = cls.query.first()
         if settings is None:
             settings = cls()
@@ -291,14 +315,17 @@ class GardenNode(AuditMixin, db.Model):
     }
 
     def can_have_children(self) -> bool:
+        """Return whether the node can still have child nodes."""
         return self.level < 4
 
     @property
     def level_label(self) -> str:
+        """Return a human-readable label for the node level."""
         return self.LEVEL_LABELS.get(self.level, f"Level {self.level}")
 
     @property
     def display_image(self) -> str | None:
+        """Return the image path that should represent this node."""
         if self.hero_image_path:
             return self.hero_image_path
         if self.default_photo:
@@ -309,6 +336,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def image_display_style(self) -> str:
+        """Return CSS variables used to render the node image."""
         mode = self.image_display_mode or "contain"
         focus_x = self.image_focus_x if self.image_focus_x is not None else 50
         focus_y = self.image_focus_y if self.image_focus_y is not None else 50
@@ -319,6 +347,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def latest_photo(self) -> "NodePhoto | None":
+        """Return the newest dated photo attached to the node."""
         if not self.photos:
             return None
         return sorted(
@@ -329,12 +358,14 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def default_photo(self) -> "NodePhoto | None":
+        """Return the photo marked as the node's default image."""
         for photo in self.photos:
             if photo.is_default:
                 return photo
         return None
 
     def breadcrumbs(self) -> list["GardenNode"]:
+        """Return the ancestor trail from the root node to this node."""
         current = self
         trail: list[GardenNode] = []
         while current is not None:
@@ -344,6 +375,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def top_level_ancestor(self) -> "GardenNode":
+        """Return the root ancestor for this node."""
         current = self
         while current.parent is not None:
             current = current.parent
@@ -351,6 +383,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def section_ancestor(self) -> "GardenNode":
+        """Return the nearest section ancestor, or the root when none exists."""
         current = self
         while current is not None:
             if current.level == 2:
@@ -360,6 +393,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def effective_cultivation_year(self) -> int | None:
+        """Return the explicit or derived cultivation year for annual nodes."""
         if self.cultivation_year is not None:
             return self.cultivation_year
         if self.life_cycle == "annual" and self.planting_date is not None:
@@ -368,12 +402,14 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def lineage_root(self) -> "GardenNode":
+        """Return the first node in this cultivation clone lineage."""
         current = self
         while current.cloned_from_node is not None:
             current = current.cloned_from_node
         return current
 
     def lineage_nodes(self) -> list["GardenNode"]:
+        """Return all nodes in this cultivation lineage ordered chronologically."""
         root = self.lineage_root
         ordered: list[GardenNode] = []
         stack = [root]
@@ -398,14 +434,17 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def has_hotspot(self) -> bool:
+        """Return whether the node has an image hotspot position."""
         return self.map_x is not None and self.map_y is not None
 
     @property
     def has_geo_point(self) -> bool:
+        """Return whether the node has geographic coordinates for map providers."""
         return self.geo_lat is not None and self.geo_lng is not None
 
     @property
     def marker_color_value(self) -> str:
+        """Return the effective marker color hex value for the node."""
         if self.marker_color is not None and self.marker_color.hex_value:
             return self.marker_color.hex_value
         if self.hotspot_color:
@@ -414,6 +453,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def marker_icon_class(self) -> str | None:
+        """Return the normalized MDI icon class used for this node."""
         icon = (self.marker_icon or "").strip()
         if not icon:
             return None
@@ -421,6 +461,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def point_positions(self) -> list[tuple[float, float]]:
+        """Return all point hotspot positions attached to the node."""
         positions: list[tuple[float, float]] = []
         if self.map_x is not None and self.map_y is not None:
             positions.append((float(self.map_x), float(self.map_y)))
@@ -448,6 +489,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def area_polygon_points(self) -> list[tuple[float, float]]:
+        """Return the node area polygon as percentage-based image points."""
         stored_points = [
             (self.area_corner_1_x, self.area_corner_1_y),
             (self.area_corner_2_x, self.area_corner_2_y),
@@ -471,6 +513,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def area_overlay_style(self) -> str:
+        """Return CSS positioning data for rendering the area overlay shell."""
         points = self.area_polygon_points
         if len(points) != 4:
             return ""
@@ -503,6 +546,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def area_overlay_svg_points(self) -> str:
+        """Return SVG-ready polygon points for the area overlay."""
         points = self.area_polygon_points
         if len(points) != 4:
             return ""
@@ -522,6 +566,7 @@ class GardenNode(AuditMixin, db.Model):
 
     @property
     def is_dead(self) -> bool:
+        """Return whether the node has been marked as dead."""
         return self.death_year is not None
 
 
@@ -610,9 +655,15 @@ class LinkType(AuditMixin, db.Model):
 
     @property
     def translation_key(self) -> str:
+        """Return the translation key used for this link type's name."""
         return f"link_type.{self.id}.name"
 
     def localized_name(self, locale: str | None = None) -> str:
+        """Return the localized display name for the link type.
+
+        Parameters:
+            locale: Locale code to resolve, defaulting to the app fallback.
+        """
         if self.id is None:
             return self.name
 
@@ -634,6 +685,12 @@ class LinkType(AuditMixin, db.Model):
         return self.name
 
     def save_localized_names(self, names_by_locale: dict[str, str], *, overwrite: bool = True) -> None:
+        """Persist localized names for this link type.
+
+        Parameters:
+            names_by_locale: Localized names keyed by locale code.
+            overwrite: Whether existing translation entries may be replaced.
+        """
         if self.id is None:
             raise ValueError("LinkType must be flushed before saving translations.")
 
@@ -672,6 +729,11 @@ class NodeExternalLink(AuditMixin, db.Model):
     link_type = db.relationship("LinkType", back_populates="links")
 
     def display_label(self, locale: str | None = None) -> str:
+        """Return the label shown for a link, falling back to type or URL.
+
+        Parameters:
+            locale: Locale used when falling back to the link type name.
+        """
         cleaned_label = (self.label or "").strip()
         if cleaned_label:
             return cleaned_label
@@ -728,6 +790,7 @@ class HomeAssistantSettings(AuditMixin, db.Model):
 
     @classmethod
     def get_or_create(cls) -> "HomeAssistantSettings":
+        """Return the singleton Home Assistant settings row, creating it if needed."""
         settings = cls.query.first()
         if settings is None:
             settings = cls()
@@ -737,10 +800,12 @@ class HomeAssistantSettings(AuditMixin, db.Model):
 
     @property
     def is_configured(self) -> bool:
+        """Return whether enough data is present to call the Home Assistant API."""
         return bool((self.internal_url or self.base_url) and self.access_token)
 
     @property
     def effective_url(self) -> str | None:
+        """Return the internal URL when present, otherwise the public base URL."""
         return self.internal_url or self.base_url
 
 
@@ -791,6 +856,7 @@ class UserLoginHistory(db.Model):
 
 
 def _audit_actor_name() -> str:
+    """Return the username responsible for the current database change."""
     try:
         if has_request_context() and getattr(current_user, "is_authenticated", False):
             username = (current_user.username or "").strip()
@@ -803,6 +869,13 @@ def _audit_actor_name() -> str:
 
 @event.listens_for(Session, "before_flush")
 def _stamp_audit_fields(session, flush_context, instances) -> None:
+    """Populate audit columns before SQLAlchemy flushes changes.
+
+    Parameters:
+        session: SQLAlchemy session being flushed.
+        flush_context: SQLAlchemy flush context object.
+        instances: Optional collection of instances passed by SQLAlchemy.
+    """
     actor_name = _audit_actor_name()
 
     for obj in session.new:
@@ -817,6 +890,7 @@ def _stamp_audit_fields(session, flush_context, instances) -> None:
 
 
 def ensure_seed_data() -> None:
+    """Create required system data and backfill legacy defaults on startup."""
     permissions_map = {
         "view_dashboard": "Can view the garden dashboard and node pages.",
         "manage_content": "Can create and edit garden content.",
@@ -956,11 +1030,22 @@ def ensure_seed_data() -> None:
 
 
 def _sqlite_index_columns(connection, index_name: str) -> list[str]:
+    """Return the column names used by a SQLite index.
+
+    Parameters:
+        connection: Active SQLAlchemy connection.
+        index_name: Name of the index to inspect.
+    """
     rows = connection.exec_driver_sql(f"PRAGMA index_info('{index_name}')").fetchall()
     return [row[2] for row in rows]
 
 
 def _sync_users_email_optionality(connection) -> None:
+    """Relax the users.email column so email becomes optional.
+
+    Parameters:
+        connection: Active SQLAlchemy connection used for schema changes.
+    """
     email_column = next(
         (column for column in inspect(db.engine).get_columns("users") if column["name"] == "email"),
         None,
@@ -1007,6 +1092,11 @@ def _sync_users_email_optionality(connection) -> None:
 
 
 def _sync_garden_node_uniqueness(connection) -> None:
+    """Replace legacy node uniqueness rules with cultivation-year-aware indexing.
+
+    Parameters:
+        connection: Active SQLAlchemy connection used for schema changes.
+    """
     if db.engine.dialect.name == "sqlite":
         index_rows = connection.exec_driver_sql("PRAGMA index_list('garden_nodes')").fetchall()
         new_index_present = False
@@ -1120,6 +1210,7 @@ def _sync_garden_node_uniqueness(connection) -> None:
 
 
 def sync_schema() -> None:
+    """Apply additive schema updates and compatibility repairs at startup."""
     inspector = inspect(db.engine)
     existing_tables = set(inspector.get_table_names())
     statements = {
