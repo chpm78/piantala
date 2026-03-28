@@ -4,6 +4,21 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.3.0] - 2026-03-28
+
+### Added
+- Prospect/map image roles are now handled more explicitly across node media flows, including a bulk cultivation-position manager for moving child cultivations from one shared editor.
+- New dedicated editors were added for replacing legacy node `display` and `map` images, using the same crop/rotate preview flow as standard uploads.
+- Photo editing now supports replacing the underlying image with the same preview, crop, and rotation workflow used during import.
+
+### Changed
+- The redundant `Immagine principale` upload area was removed from `modify node`, centralizing image management in the node image list.
+- Node image lists in both detail and edit views now surface dedicated node images and standard node photos more consistently.
+
+### Fixed
+- The cultivation bulk-position editor now initializes correctly and allows selecting cultivations from the left-hand list.
+- Existing nodes such as `Frutteto` can now edit both prospect and map legacy images instead of only the map image.
+
 ## [0.2.1] - 2026-03-22
 
 ### Added

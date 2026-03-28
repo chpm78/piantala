@@ -11,7 +11,7 @@
       <p>{{ tr("map_settings.description") }}</p>
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="form-grid">
+    <form method="post" enctype="multipart/form-data" class="form-grid" data-photo-import-editor="true">
       {{ form.hidden_tag() }}
 
       <div class="settings-section">
@@ -125,8 +125,51 @@
         >
           <label>
             <span>{{ tr("map_settings.map_image") }}</span>
-            {{ form.map_image(class_="input") }}
+            {{ form.map_image(class_="input", accept="image/*", data_photo_import_file="true") }}
           </label>
+          <div
+            class="photo-import-stage full-width"
+            data-photo-import-stage="true"
+            data-preview-ready-text="{{ tr('node.preview_ready') }}"
+            data-preview-dirty-text="{{ tr('node.preview_needs_refresh') }}"
+          >
+            <img
+              alt="{{ tr('node.original_image') }}"
+              class="photo-import-stage-image"
+              data-photo-import-image="true"
+              hidden
+            >
+            <div class="photo-import-crop-box" data-photo-import-crop-box="true" hidden>
+              <button type="button" class="photo-import-handle is-top-left" data-photo-import-handle="top-left" aria-label="Top left"></button>
+              <button type="button" class="photo-import-handle is-top-right" data-photo-import-handle="top-right" aria-label="Top right"></button>
+              <button type="button" class="photo-import-handle is-bottom-left" data-photo-import-handle="bottom-left" aria-label="Bottom left"></button>
+              <button type="button" class="photo-import-handle is-bottom-right" data-photo-import-handle="bottom-right" aria-label="Bottom right"></button>
+            </div>
+            <div class="photo-import-reference-line" data-photo-import-line="true" hidden>
+              <button type="button" class="photo-import-line-handle" data-photo-import-line-handle="start" aria-label="Line start"></button>
+              <button type="button" class="photo-import-line-handle" data-photo-import-line-handle="end" aria-label="Line end"></button>
+            </div>
+            <div class="photo-import-empty muted" data-photo-import-empty="true">{{ tr("node.import_pick_image") }}</div>
+          </div>
+          <div class="photo-import-preview-shell full-width" data-photo-import-preview-shell="true" hidden>
+            <div class="photo-import-editor-toolbar">
+              <strong>{{ tr("node.preview_result") }}</strong>
+              <span class="muted" data-photo-import-status="true">{{ tr("node.preview_pending") }}</span>
+            </div>
+            <div class="photo-import-result-box">
+              <img
+                alt="{{ tr('node.preview_result') }}"
+                class="photo-import-result-image"
+                data-photo-import-result="true"
+                hidden
+              >
+              <div class="photo-import-empty muted" data-photo-import-result-empty="true">{{ tr("node.preview_pending") }}</div>
+            </div>
+          </div>
+          <div class="photo-import-actions full-width">
+            <button type="button" class="button button-secondary" data-photo-import-reset="true">{{ tr("node.reset_crop") }}</button>
+            <button type="button" class="button" data-photo-import-preview="true">{{ tr("node.preview_result") }}</button>
+          </div>
           <p class="hint">
             Use a custom image when you want a hand-drawn plan or annotated overhead photo as the homepage map.
           </p>
@@ -176,7 +219,7 @@
       </div>
 
       <div class="full-width">
-        {{ form.submit(class_="button", value=tr("common.save")) }}
+        {{ form.submit(class_="button", value=tr("common.save"), data_photo_import_submit="true") }}
         {% set item = settings %}
         {% include "_audit_meta.html" %}
       </div>

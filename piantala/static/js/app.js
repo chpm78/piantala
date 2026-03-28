@@ -638,6 +638,348 @@ function initOverlayEditors() {
   });
 }
 
+/**
+ * Create a draggable point marker for the bulk cultivation position editor.
+ *
+ * @param {{node_type: string, marker_color: string, marker_icon: string}} child Child display metadata.
+ * @param {{x: number, y: number}} position Marker position as image percentages.
+ * @param {number} index Zero-based point index.
+ * @param {boolean} selected Whether the child is currently selected in the editor.
+ * @returns {HTMLButtonElement}
+ */
+function createManagedPointMarkerElement(child, position, index, selected) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `image-hotspot image-hotspot-static image-hotspot-point image-hotspot-node-${child.node_type || "custom"} overlay-editor-point cultivation-manager-point`;
+  if (selected) {
+    button.classList.add("is-selected");
+  }
+  button.style.left = `${formatPercent(position.x)}%`;
+  button.style.top = `${formatPercent(position.y)}%`;
+  button.style.setProperty("--hotspot-color", child.marker_color || "#f28c28");
+  button.dataset.pointIndex = String(index);
+  button.setAttribute("aria-label", `${child.title || "Cultivation"} point ${index + 1}`);
+
+  if (child.marker_icon) {
+    button.classList.add("image-hotspot-has-icon");
+    const icon = document.createElement("span");
+    icon.className = `image-hotspot-icon mdi ${child.marker_icon}`;
+    icon.setAttribute("aria-hidden", "true");
+    button.appendChild(icon);
+  } else {
+    const badge = document.createElement("span");
+    badge.className = "overlay-editor-point-label";
+    badge.textContent = String(index + 1);
+    button.appendChild(badge);
+  }
+
+  return button;
+}
+
+/**
+ * Initialize the shared cultivation-position manager used to move many children from one page.
+ */
+function initCultivationPositionManagers() {
+  document.querySelectorAll("[data-cultivation-position-manager='true']").forEach((container) => {
+    if (container.dataset.positionsReady === "true") {
+      return;
+    }
+    container.dataset.positionsReady = "true";
+
+    const stateInput = container.querySelector("[data-cultivation-state-input='true']");
+    const image = container.querySelector("[data-cultivation-image='true']");
+    const staticLayer = container.querySelector("[data-cultivation-static-layer='true']");
+    const editorLayer = container.querySelector("[data-cultivation-editor-layer='true']");
+    const polygon = container.querySelector("[data-cultivation-editor-polygon='true']");
+    const handles = Array.from(container.querySelectorAll("[data-cultivation-editor-handle]"));
+    const pointLayer = container.querySelector("[data-cultivation-point-layer='true']");
+    const pointPanel = container.querySelector("[data-cultivation-point-panel='true']");
+    const pointList = container.querySelector("[data-cultivation-point-list='true']");
+    const selectedTitle = container.querySelector("[data-cultivation-selected-title='true']");
+    const helpText = container.querySelector("[data-cultivation-help='true']");
+    const listButtons = Array.from(container.querySelectorAll("[data-cultivation-select='true']"));
+
+    let children = [];
+    try {
+      children = JSON.parse(stateInput?.value || "[]");
+    } catch (error) {
+      children = [];
+    }
+    if (!Array.isArray(children) || !image || !staticLayer || !editorLayer || !polygon || !pointLayer) {
+      return;
+    }
+
+    let selectedChildId = Number.parseInt(container.dataset.selectedChildId || "", 10);
+    if (!Number.isFinite(selectedChildId)) {
+      selectedChildId = Number.parseInt(children[0]?.id, 10);
+    }
+    let detachActiveDragListeners = null;
+
+    const findChild = () =>
+      children.find((child) => Number.parseInt(child.id, 10) === Number.parseInt(selectedChildId, 10)) || children[0];
+
+    const writeState = () => {
+      if (stateInput) {
+        stateInput.value = JSON.stringify(children);
+      }
+    };
+
+    const pointFromPointerEvent = (event) => {
+      const rect = image.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return null;
+      }
+      return {
+        x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
+        y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
+      };
+    };
+
+    const updateSelectionUi = () => {
+      const current = findChild();
+      listButtons.forEach((button) => {
+        button.classList.toggle(
+          "is-selected",
+          Number.parseInt(button.dataset.childId || "", 10) === Number.parseInt(current?.id, 10),
+        );
+      });
+      if (selectedTitle) {
+        selectedTitle.textContent = current?.title || "";
+      }
+      if (helpText) {
+        helpText.textContent = current?.overlay_shape === "area"
+          ? (container.dataset.areaHelp || "Drag the four corners to reshape the selected cultivation.")
+          : (container.dataset.pointHelp || "Click the map to add a point, then drag markers to fine-tune them.");
+      }
+    };
+
+    const renderStaticLayer = () => {
+      staticLayer.innerHTML = "";
+      const current = findChild();
+      children.forEach((child) => {
+        const isSelected = Number.parseInt(child.id, 10) === Number.parseInt(current?.id, 10);
+        if (child.overlay_shape === "area" && Array.isArray(child.polygon) && child.polygon.length === 4) {
+          const overlay = document.createElement("div");
+          overlay.className = "cultivation-manager-area";
+          if (isSelected) {
+            overlay.classList.add("is-selected");
+          }
+          overlay.innerHTML = `
+            <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              <polygon class="image-hotspot-area-polygon" points="${child.polygon.map((point) => `${formatPercent(point.x)},${formatPercent(point.y)}`).join(" ")}"></polygon>
+            </svg>
+          `;
+          staticLayer.appendChild(overlay);
+          return;
+        }
+
+        (Array.isArray(child.points) ? child.points : []).forEach((position, index) => {
+          const marker = createManagedPointMarkerElement(child, position, index, isSelected);
+          marker.tabIndex = -1;
+          marker.disabled = true;
+          staticLayer.appendChild(marker);
+        });
+      });
+    };
+
+    const renderEditor = () => {
+      const current = findChild();
+      updateSelectionUi();
+      renderStaticLayer();
+      if (!current) {
+        editorLayer.hidden = true;
+        pointLayer.hidden = true;
+        if (pointList) {
+          pointList.innerHTML = "";
+        }
+        return;
+      }
+
+      if (current.overlay_shape === "area") {
+        const polygonPoints = Array.isArray(current.polygon) ? current.polygon : [];
+        pointLayer.innerHTML = "";
+        pointLayer.hidden = true;
+        if (pointPanel) {
+          pointPanel.hidden = true;
+        }
+        editorLayer.hidden = !polygonPoints.length;
+        polygon.setAttribute(
+          "points",
+          polygonPoints.map((point) => `${formatPercent(point.x)},${formatPercent(point.y)}`).join(" "),
+        );
+        handles.forEach((handle, index) => {
+          const point = polygonPoints[index];
+          handle.hidden = !point;
+          if (point) {
+            handle.style.left = `${formatPercent(point.x)}%`;
+            handle.style.top = `${formatPercent(point.y)}%`;
+          }
+        });
+        writeState();
+        return;
+      }
+
+      editorLayer.hidden = true;
+      handles.forEach((handle) => {
+        handle.hidden = true;
+      });
+      pointLayer.hidden = false;
+      pointLayer.innerHTML = "";
+      if (pointPanel) {
+        pointPanel.hidden = false;
+      }
+      if (pointList) {
+        pointList.innerHTML = "";
+      }
+      (Array.isArray(current.points) ? current.points : []).forEach((position, index) => {
+        pointLayer.appendChild(createManagedPointMarkerElement(current, position, index, true));
+        if (pointList) {
+          const item = document.createElement("div");
+          item.className = "point-positions-item";
+          item.innerHTML = `<span>${index + 1}. X ${formatPercent(position.x)}%, Y ${formatPercent(position.y)}%</span>`;
+          const removeButton = document.createElement("button");
+          removeButton.type = "button";
+          removeButton.className = "button button-secondary button-small";
+          removeButton.textContent = pointPanel?.dataset.removeLabel || "Delete";
+          removeButton.dataset.removePointIndex = String(index);
+          item.appendChild(removeButton);
+          pointList?.appendChild(item);
+        }
+      });
+      writeState();
+    };
+
+    const startDrag = (pointerId, onMove) => {
+      if (detachActiveDragListeners) {
+        detachActiveDragListeners();
+      }
+
+      const handlePointerMove = (moveEvent) => {
+        if (moveEvent.pointerId !== pointerId) {
+          return;
+        }
+        const point = pointFromPointerEvent(moveEvent);
+        if (!point) {
+          return;
+        }
+        onMove(point);
+      };
+
+      const stopDrag = (endEvent) => {
+        if (endEvent.pointerId !== pointerId) {
+          return;
+        }
+        if (detachActiveDragListeners) {
+          detachActiveDragListeners();
+        }
+      };
+
+      detachActiveDragListeners = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopDrag);
+        window.removeEventListener("pointercancel", stopDrag);
+        detachActiveDragListeners = null;
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopDrag);
+      window.addEventListener("pointercancel", stopDrag);
+    };
+
+    container.addEventListener("click", (event) => {
+      const selectionButton = event.target.closest("[data-cultivation-select='true']");
+      if (selectionButton) {
+        selectedChildId = Number.parseInt(selectionButton.dataset.childId || "", 10);
+        renderEditor();
+        return;
+      }
+
+      if (event.target.closest("[data-remove-point-index]")) {
+        const current = findChild();
+        if (!current || current.overlay_shape === "area") {
+          return;
+        }
+        const removeIndex = Number.parseInt(event.target.closest("[data-remove-point-index]").dataset.removePointIndex || "-1", 10);
+        current.points.splice(removeIndex, 1);
+        renderEditor();
+        return;
+      }
+
+      if (event.target.closest("button, a, input, textarea, select, label")) {
+        return;
+      }
+
+      const current = findChild();
+      if (!current || current.overlay_shape === "area") {
+        return;
+      }
+      const point = pointFromPointerEvent(event);
+      if (!point) {
+        return;
+      }
+      current.points = Array.isArray(current.points) ? current.points : [];
+      current.points.push(point);
+      renderEditor();
+    });
+
+    handles.forEach((handle) => {
+      handle.addEventListener("pointerdown", (event) => {
+        const current = findChild();
+        const handleIndex = Number.parseInt(handle.dataset.cultivationEditorHandle || "-1", 10);
+        if (!current || current.overlay_shape !== "area" || handleIndex < 0) {
+          return;
+        }
+        if (typeof handle.setPointerCapture === "function") {
+          handle.setPointerCapture(event.pointerId);
+        }
+        startDrag(event.pointerId, (point) => {
+          if (!Array.isArray(current.polygon) || !current.polygon[handleIndex]) {
+            return;
+          }
+          current.polygon[handleIndex] = point;
+          renderEditor();
+        });
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    });
+
+    pointLayer.addEventListener("pointerdown", (event) => {
+      const pointButton = event.target.closest("[data-point-index]");
+      const current = findChild();
+      if (!pointButton || !current || current.overlay_shape === "area") {
+        return;
+      }
+      const pointIndex = Number.parseInt(pointButton.dataset.pointIndex || "-1", 10);
+      if (pointIndex < 0) {
+        return;
+      }
+      if (typeof pointButton.setPointerCapture === "function") {
+        pointButton.setPointerCapture(event.pointerId);
+      }
+      startDrag(event.pointerId, (position) => {
+        if (!Array.isArray(current.points) || !current.points[pointIndex]) {
+          return;
+        }
+        current.points[pointIndex] = position;
+        renderEditor();
+      });
+      event.preventDefault();
+    });
+
+    container.addEventListener("dragstart", (event) => {
+      event.preventDefault();
+    });
+
+    renderEditor();
+  });
+}
+
 document.addEventListener("click", (event) => {
   const deleteButton = event.target.closest("[data-confirm]");
   if (deleteButton && !window.confirm(deleteButton.dataset.confirm)) {
@@ -1345,6 +1687,530 @@ function initSearchableSelects() {
 }
 
 /**
+ * Initialize the client-side crop and rotation preview for node photo imports.
+ */
+function initPhotoImportEditor() {
+  document.querySelectorAll("[data-photo-import-editor='true']").forEach((form) => {
+    if (form.dataset.photoImportReady === "true") {
+      return;
+    }
+
+    const fileInput = form.querySelector("[data-photo-import-file='true']");
+    const stage = form.querySelector("[data-photo-import-stage='true']");
+    const stageImage = form.querySelector("[data-photo-import-image='true']");
+    const cropBox = form.querySelector("[data-photo-import-crop-box='true']");
+    const line = form.querySelector("[data-photo-import-line='true']");
+    const previewButton = form.querySelector("[data-photo-import-preview='true']");
+    const resetButton = form.querySelector("[data-photo-import-reset='true']");
+    const submitButton = form.querySelector("[data-photo-import-submit='true']");
+    const previewShell = form.querySelector("[data-photo-import-preview-shell='true']");
+    const resultImage = form.querySelector("[data-photo-import-result='true']");
+    const statusLabel = form.querySelector("[data-photo-import-status='true']");
+    const emptyLabel = form.querySelector("[data-photo-import-empty='true']");
+    const resultEmptyLabel = form.querySelector("[data-photo-import-result-empty='true']");
+    const processedInput = form.querySelector("input[name$='processed_image_data']");
+    if (!fileInput || !stage || !stageImage || !cropBox || !line || !previewButton || !submitButton || !resultImage || !statusLabel || !emptyLabel || !resultEmptyLabel || !processedInput) {
+      return;
+    }
+
+    form.dataset.photoImportReady = "true";
+    const previewReadyText = stage.dataset.previewReadyText || "Preview ready";
+    const previewDirtyText = stage.dataset.previewDirtyText || "Preview needs refresh after the latest changes.";
+    const state = {
+      objectUrl: null,
+      imageLoaded: false,
+      rect: { x: 12, y: 12, width: 76, height: 70 },
+      lineStart: { x: 22, y: 78 },
+      lineEnd: { x: 78, y: 78 },
+      activeDrag: null,
+      dragPointerId: null,
+      dragStart: null,
+      previewDirty: false,
+    };
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+    const setPreviewDirty = () => {
+      state.previewDirty = true;
+      processedInput.value = "";
+      submitButton.disabled = true;
+      resultImage.hidden = true;
+      resultEmptyLabel.hidden = false;
+      if (previewShell) {
+        previewShell.hidden = true;
+      }
+      statusLabel.textContent = previewDirtyText;
+    };
+
+    const stagePercentFromEvent = (event) => {
+      const bounds = stage.getBoundingClientRect();
+      const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 0, 100);
+      const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 0, 100);
+      return { x, y };
+    };
+
+    const syncReferenceLineToCrop = () => {
+      state.lineStart = {
+        x: state.rect.x + Math.max(8, state.rect.width * 0.12),
+        y: state.rect.y + state.rect.height - Math.max(6, state.rect.height * 0.08),
+      };
+      state.lineEnd = {
+        x: state.rect.x + state.rect.width - Math.max(8, state.rect.width * 0.12),
+        y: state.rect.y + state.rect.height - Math.max(6, state.rect.height * 0.08),
+      };
+    };
+
+    const ensureMinimumRect = () => {
+      state.rect.width = clamp(state.rect.width, 6, 100);
+      state.rect.height = clamp(state.rect.height, 6, 100);
+      state.rect.x = clamp(state.rect.x, 0, 100 - state.rect.width);
+      state.rect.y = clamp(state.rect.y, 0, 100 - state.rect.height);
+    };
+
+    const clampLinePoint = (point) => ({
+      x: clamp(point.x, state.rect.x, state.rect.x + state.rect.width),
+      y: clamp(point.y, state.rect.y, state.rect.y + state.rect.height),
+    });
+
+    const render = () => {
+      if (!state.imageLoaded) {
+        cropBox.hidden = true;
+        line.hidden = true;
+        return;
+      }
+
+      ensureMinimumRect();
+      state.lineStart = clampLinePoint(state.lineStart);
+      state.lineEnd = clampLinePoint(state.lineEnd);
+
+      cropBox.hidden = false;
+      cropBox.style.left = `${state.rect.x}%`;
+      cropBox.style.top = `${state.rect.y}%`;
+      cropBox.style.width = `${state.rect.width}%`;
+      cropBox.style.height = `${state.rect.height}%`;
+
+      const bounds = stage.getBoundingClientRect();
+      const startX = (state.lineStart.x / 100) * bounds.width;
+      const startY = (state.lineStart.y / 100) * bounds.height;
+      const endX = (state.lineEnd.x / 100) * bounds.width;
+      const endY = (state.lineEnd.y / 100) * bounds.height;
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const length = Math.max(16, Math.hypot(dx, dy));
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      line.hidden = false;
+      line.style.left = `${startX}px`;
+      line.style.top = `${startY}px`;
+      line.style.width = `${length}px`;
+      line.style.transform = `rotate(${angle}deg)`;
+    };
+
+    const resetEditor = () => {
+      state.rect = { x: 12, y: 12, width: 76, height: 70 };
+      syncReferenceLineToCrop();
+      render();
+      setPreviewDirty();
+    };
+
+    const loadSelectedFile = () => {
+      const file = fileInput.files?.[0];
+      if (!file) {
+        processedInput.value = "";
+        submitButton.disabled = false;
+        if (previewShell) {
+          previewShell.hidden = true;
+        }
+        statusLabel.textContent = previewDirtyText;
+        return;
+      }
+
+      if (state.objectUrl) {
+        URL.revokeObjectURL(state.objectUrl);
+      }
+      state.objectUrl = URL.createObjectURL(file);
+      stageImage.src = state.objectUrl;
+      stageImage.hidden = false;
+      emptyLabel.hidden = true;
+      stageImage.onload = () => {
+        state.imageLoaded = true;
+        resetEditor();
+      };
+    };
+
+    const trimCanvas = (canvas) => {
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return canvas;
+    }
+    const { width, height } = canvas;
+    const data = context.getImageData(0, 0, width, height).data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const alpha = data[(y * width + x) * 4 + 3];
+        if (alpha > 0) {
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+
+    if (maxX < minX || maxY < minY) {
+      return canvas;
+    }
+
+    const output = document.createElement("canvas");
+    output.width = maxX - minX + 1;
+    output.height = maxY - minY + 1;
+    const outputContext = output.getContext("2d");
+    if (!outputContext) {
+      return canvas;
+    }
+      outputContext.drawImage(canvas, minX, minY, output.width, output.height, 0, 0, output.width, output.height);
+      return output;
+    };
+
+    const cropOpaqueInnerRectangle = (canvas) => {
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return canvas;
+      }
+
+      const { width, height } = canvas;
+      const data = context.getImageData(0, 0, width, height).data;
+      const rowSpans = [];
+
+      for (let y = 0; y < height; y += 1) {
+        let minX = width;
+        let maxX = -1;
+        for (let x = 0; x < width; x += 1) {
+          const alpha = data[(y * width + x) * 4 + 3];
+          if (alpha > 0) {
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+          }
+        }
+        if (maxX >= minX) {
+          rowSpans.push({ minX, maxX, y });
+        }
+      }
+
+      if (!rowSpans.length) {
+        return canvas;
+      }
+
+      const cropLeft = rowSpans.reduce((value, row) => Math.max(value, row.minX), 0);
+      const cropRight = rowSpans.reduce((value, row) => Math.min(value, row.maxX), width - 1);
+      if (cropRight <= cropLeft) {
+        return canvas;
+      }
+
+      const columnSpans = [];
+      for (let x = cropLeft; x <= cropRight; x += 1) {
+        let minY = height;
+        let maxY = -1;
+        for (let y = 0; y < height; y += 1) {
+          const alpha = data[(y * width + x) * 4 + 3];
+          if (alpha > 0) {
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+          }
+        }
+        if (maxY >= minY) {
+          columnSpans.push({ minY, maxY, x });
+        }
+      }
+
+      if (!columnSpans.length) {
+        return canvas;
+      }
+
+      const cropTop = columnSpans.reduce((value, column) => Math.max(value, column.minY), 0);
+      const cropBottom = columnSpans.reduce((value, column) => Math.min(value, column.maxY), height - 1);
+      if (cropBottom <= cropTop) {
+        return canvas;
+      }
+
+      const output = document.createElement("canvas");
+      output.width = cropRight - cropLeft + 1;
+      output.height = cropBottom - cropTop + 1;
+      const outputContext = output.getContext("2d");
+      if (!outputContext) {
+        return canvas;
+      }
+      outputContext.drawImage(
+        canvas,
+        cropLeft,
+        cropTop,
+        output.width,
+        output.height,
+        0,
+        0,
+        output.width,
+        output.height,
+      );
+      return output;
+    };
+
+    const scaleCanvasToMaxDimension = (canvas, maxDimension) => {
+      if (Math.max(canvas.width, canvas.height) <= maxDimension) {
+        return canvas;
+      }
+
+      const scale = maxDimension / Math.max(canvas.width, canvas.height);
+      const output = document.createElement("canvas");
+      output.width = Math.max(1, Math.round(canvas.width * scale));
+      output.height = Math.max(1, Math.round(canvas.height * scale));
+      const outputContext = output.getContext("2d");
+      if (!outputContext) {
+        return canvas;
+      }
+      outputContext.drawImage(canvas, 0, 0, output.width, output.height);
+      return output;
+    };
+
+    const buildPreview = () => {
+      if (!state.imageLoaded || !stageImage.naturalWidth || !stageImage.naturalHeight) {
+        return;
+      }
+
+      const sx = Math.round((state.rect.x / 100) * stageImage.naturalWidth);
+      const sy = Math.round((state.rect.y / 100) * stageImage.naturalHeight);
+      const sw = Math.max(1, Math.round((state.rect.width / 100) * stageImage.naturalWidth));
+      const sh = Math.max(1, Math.round((state.rect.height / 100) * stageImage.naturalHeight));
+
+      const lineStart = {
+        x: (state.lineStart.x / 100) * stageImage.naturalWidth,
+        y: (state.lineStart.y / 100) * stageImage.naturalHeight,
+      };
+      const lineEnd = {
+        x: (state.lineEnd.x / 100) * stageImage.naturalWidth,
+        y: (state.lineEnd.y / 100) * stageImage.naturalHeight,
+      };
+      const angle = Math.atan2(lineEnd.y - lineStart.y, lineEnd.x - lineStart.x);
+
+      const imageWidth = stageImage.naturalWidth;
+      const imageHeight = stageImage.naturalHeight;
+      const rotatedWidth = Math.ceil(
+        Math.abs(imageWidth * Math.cos(angle)) + Math.abs(imageHeight * Math.sin(angle)),
+      );
+      const rotatedHeight = Math.ceil(
+        Math.abs(imageWidth * Math.sin(angle)) + Math.abs(imageHeight * Math.cos(angle)),
+      );
+      const rotatedCanvas = document.createElement("canvas");
+      rotatedCanvas.width = rotatedWidth;
+      rotatedCanvas.height = rotatedHeight;
+      const rotatedContext = rotatedCanvas.getContext("2d");
+      if (!rotatedContext) {
+        return;
+      }
+
+      const imageCenter = { x: imageWidth / 2, y: imageHeight / 2 };
+      const rotatedCenter = { x: rotatedWidth / 2, y: rotatedHeight / 2 };
+      rotatedContext.translate(rotatedWidth / 2, rotatedHeight / 2);
+      rotatedContext.rotate(-angle);
+      rotatedContext.drawImage(stageImage, -imageWidth / 2, -imageHeight / 2);
+
+      const rotatePoint = (point) => {
+        const translatedX = point.x - imageCenter.x;
+        const translatedY = point.y - imageCenter.y;
+        const cosAngle = Math.cos(-angle);
+        const sinAngle = Math.sin(-angle);
+        return {
+          x: translatedX * cosAngle - translatedY * sinAngle + rotatedCenter.x,
+          y: translatedX * sinAngle + translatedY * cosAngle + rotatedCenter.y,
+        };
+      };
+
+      const rotatedCropCorners = [
+        rotatePoint({ x: sx, y: sy }),
+        rotatePoint({ x: sx + sw, y: sy }),
+        rotatePoint({ x: sx + sw, y: sy + sh }),
+        rotatePoint({ x: sx, y: sy + sh }),
+      ];
+      const cropLeft = Math.max(0, Math.floor(Math.min(...rotatedCropCorners.map((point) => point.x))));
+      const cropTop = Math.max(0, Math.floor(Math.min(...rotatedCropCorners.map((point) => point.y))));
+      const cropRight = Math.min(rotatedWidth, Math.ceil(Math.max(...rotatedCropCorners.map((point) => point.x))));
+      const cropBottom = Math.min(rotatedHeight, Math.ceil(Math.max(...rotatedCropCorners.map((point) => point.y))));
+      const croppedWidth = Math.max(1, cropRight - cropLeft);
+      const croppedHeight = Math.max(1, cropBottom - cropTop);
+
+      const croppedCanvas = document.createElement("canvas");
+      croppedCanvas.width = croppedWidth;
+      croppedCanvas.height = croppedHeight;
+      const croppedContext = croppedCanvas.getContext("2d");
+      if (!croppedContext) {
+        return;
+      }
+      croppedContext.drawImage(
+        rotatedCanvas,
+        cropLeft,
+        cropTop,
+        croppedWidth,
+        croppedHeight,
+        0,
+        0,
+        croppedWidth,
+        croppedHeight,
+      );
+
+      const trimmedCanvas = trimCanvas(croppedCanvas);
+      const scaledCanvas = scaleCanvasToMaxDimension(trimmedCanvas, 2400);
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width = scaledCanvas.width;
+      finalCanvas.height = scaledCanvas.height;
+      const finalContext = finalCanvas.getContext("2d");
+      if (!finalContext) {
+        return;
+      }
+      finalContext.fillStyle = "#ffffff";
+      finalContext.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+      finalContext.drawImage(scaledCanvas, 0, 0);
+
+      const dataUrl = finalCanvas.toDataURL("image/jpeg", 0.82);
+      processedInput.value = dataUrl;
+      resultImage.src = dataUrl;
+      resultImage.hidden = false;
+      resultEmptyLabel.hidden = true;
+      if (previewShell) {
+        previewShell.hidden = false;
+      }
+      submitButton.disabled = false;
+      state.previewDirty = false;
+      statusLabel.textContent = previewReadyText;
+    };
+
+    const beginDrag = (event, dragMode) => {
+      if (!state.imageLoaded) {
+        return;
+      }
+      state.activeDrag = dragMode;
+      state.dragPointerId = event.pointerId;
+      state.dragStart = stagePercentFromEvent(event);
+      stage.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    };
+
+    stage.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest("[data-photo-import-handle]");
+    const lineHandle = event.target.closest("[data-photo-import-line-handle]");
+
+    if (handle) {
+      beginDrag(event, `resize-${handle.dataset.photoImportHandle}`);
+      return;
+    }
+
+    if (lineHandle) {
+      beginDrag(event, `line-${lineHandle.dataset.photoImportLineHandle}`);
+      return;
+    }
+
+    if (event.target === cropBox) {
+      beginDrag(event, "move");
+      return;
+    }
+
+    if (event.target === stage || event.target === stageImage) {
+      const point = stagePercentFromEvent(event);
+      state.rect = { x: point.x, y: point.y, width: 0.1, height: 0.1 };
+      syncReferenceLineToCrop();
+      render();
+      beginDrag(event, "draw");
+      setPreviewDirty();
+    }
+    });
+
+    window.addEventListener("pointermove", (event) => {
+    if (!state.activeDrag || state.dragPointerId !== event.pointerId) {
+      return;
+    }
+
+    const point = stagePercentFromEvent(event);
+    const start = state.dragStart || point;
+
+    if (state.activeDrag === "draw") {
+      state.rect = {
+        x: Math.min(start.x, point.x),
+        y: Math.min(start.y, point.y),
+        width: Math.abs(point.x - start.x),
+        height: Math.abs(point.y - start.y),
+      };
+      syncReferenceLineToCrop();
+    } else if (state.activeDrag === "move") {
+      const deltaX = point.x - start.x;
+      const deltaY = point.y - start.y;
+      state.rect.x = clamp(state.rect.x + deltaX, 0, 100 - state.rect.width);
+      state.rect.y = clamp(state.rect.y + deltaY, 0, 100 - state.rect.height);
+      state.lineStart = { x: state.lineStart.x + deltaX, y: state.lineStart.y + deltaY };
+      state.lineEnd = { x: state.lineEnd.x + deltaX, y: state.lineEnd.y + deltaY };
+      state.dragStart = point;
+    } else if (state.activeDrag.startsWith("resize-")) {
+      const handleKey = state.activeDrag.replace("resize-", "");
+      const right = state.rect.x + state.rect.width;
+      const bottom = state.rect.y + state.rect.height;
+
+      if (handleKey.includes("left")) {
+        state.rect.x = clamp(point.x, 0, right - 6);
+        state.rect.width = right - state.rect.x;
+      }
+      if (handleKey.includes("right")) {
+        state.rect.width = clamp(point.x - state.rect.x, 6, 100 - state.rect.x);
+      }
+      if (handleKey.includes("top")) {
+        state.rect.y = clamp(point.y, 0, bottom - 6);
+        state.rect.height = bottom - state.rect.y;
+      }
+      if (handleKey.includes("bottom")) {
+        state.rect.height = clamp(point.y - state.rect.y, 6, 100 - state.rect.y);
+      }
+      syncReferenceLineToCrop();
+    } else if (state.activeDrag === "line-start") {
+      state.lineStart = clampLinePoint(point);
+    } else if (state.activeDrag === "line-end") {
+      state.lineEnd = clampLinePoint(point);
+    }
+
+    render();
+    setPreviewDirty();
+    });
+
+    window.addEventListener("pointerup", (event) => {
+    if (state.dragPointerId !== event.pointerId) {
+      return;
+    }
+    state.activeDrag = null;
+    state.dragPointerId = null;
+    state.dragStart = null;
+    });
+
+    resetButton?.addEventListener("click", () => {
+      if (!state.imageLoaded) {
+        return;
+      }
+      resetEditor();
+    });
+
+    previewButton?.addEventListener("click", () => {
+      buildPreview();
+    });
+
+    fileInput.addEventListener("change", () => {
+      loadSelectedFile();
+    });
+
+    if (!fileInput.files?.length && !fileInput.required) {
+      submitButton.disabled = false;
+    }
+  });
+}
+
+/**
  * Parse a floating-point value with a fallback.
  *
  * @param {string|number|undefined|null} value Value to parse.
@@ -1597,6 +2463,8 @@ window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
   syncMarkerPreview();
   initOverlayEditors();
+  initCultivationPositionManagers();
+  initPhotoImportEditor();
   initSearchableSelects();
   initNodeDetailFilters();
   initEntityHistoryPanels();
@@ -1614,6 +2482,8 @@ syncProviderPanels();
 syncNodeTypeFields();
 syncCultivationYearFromPlantingDate();
 initOverlayEditors();
+initCultivationPositionManagers();
+initPhotoImportEditor();
 initSearchableSelects();
 initNodeDetailFilters();
 initEntityHistoryPanels();

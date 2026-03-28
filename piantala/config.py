@@ -12,7 +12,8 @@ class Config:
         f"sqlite:///{BASE_DIR / 'instance' / 'piantala.db'}",
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(64 * 1024 * 1024)))
+    MAX_FORM_MEMORY_SIZE = int(os.getenv("MAX_FORM_MEMORY_SIZE", str(64 * 1024 * 1024)))
     UPLOAD_FOLDER = os.getenv(
         "UPLOAD_FOLDER",
         str(BASE_DIR / "piantala" / "static" / "uploads"),

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ node.level_label }}</p>
+        <h1>{{ tr("node.manage_cultivation_positions") }}</h1>
+        <p>{{ tr("node.manage_cultivation_positions_text") }}</p>
+      </div>
+      <div class="hero-actions">
+        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </div>
+
+    <form method="post" class="cultivation-manager-form">
+      {{ delete_form.hidden_tag() }}
+      <div
+        class="cultivation-manager"
+        data-cultivation-position-manager="true"
+        data-selected-child-id="{{ manageable_children[0].id if manageable_children else '' }}"
+        data-remove-label="{{ tr('common.delete') }}"
+        data-point-help="{{ tr('node.manage_positions_point_help') }}"
+        data-area-help="{{ tr('node.manage_positions_area_help') }}"
+      >
+        <input type="hidden" name="positions_payload" value='{{ positions_payload|tojson }}' data-cultivation-state-input="true">
+        <aside class="cultivation-manager-sidebar">
+          <h2>{{ tr("node.child_nodes") }}</h2>
+          <p class="muted">{{ tr("node.select_cultivation_to_move") }}</p>
+          <div class="cultivation-manager-list">
+            {% for child in manageable_children %}
+              <button
+                type="button"
+                class="cultivation-manager-item"
+                data-cultivation-select="true"
+                data-child-id="{{ child.id }}"
+              >
+                <strong>{{ child.title }}</strong>
+                <span class="muted">
+                  {{ tr("node.type_" ~ (child.node_type or 'custom')) }}
+                  {% if child.effective_cultivation_year %}
+                    · {{ child.effective_cultivation_year }}
+                  {% endif %}
+                </span>
+              </button>
+            {% endfor %}
+          </div>
+        </aside>
+
+        <div class="cultivation-manager-stage-panel">
+          <div class="panel-header">
+            <div>
+              <h2 data-cultivation-selected-title="true"></h2>
+              <p class="muted" data-cultivation-help="true">{{ tr("node.manage_positions_point_help") }}</p>
+            </div>
+          </div>
+
+          <div class="garden-map image-overlay cultivation-manager-stage">
+            <div class="image-stage">
+              <img
+                class="stage-image"
+                src="{{ url_for('static', filename=node.map_view_image) }}"
+                alt="{{ node.title }}"
+                data-cultivation-image="true"
+              >
+              <div class="cultivation-manager-static-layer" data-cultivation-static-layer="true"></div>
+              <div class="overlay-editor-layer" data-cultivation-editor-layer="true" hidden>
+                <svg class="overlay-editor-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  <polygon class="overlay-editor-polygon" data-cultivation-editor-polygon="true" points=""></polygon>
+                </svg>
+                {% for handle_index in range(4) %}
+                  <button
+                    type="button"
+                    class="overlay-editor-handle"
+                    data-cultivation-editor-handle="{{ handle_index }}"
+                    aria-label="Area corner {{ handle_index + 1 }}"
+                  ></button>
+                {% endfor %}
+              </div>
+              <div class="point-positions-layer" data-cultivation-point-layer="true"></div>
+            </div>
+          </div>
+
+          <div class="point-positions-panel" data-cultivation-point-panel="true" data-remove-label="{{ tr('common.delete') }}">
+            <strong>{{ tr("node.point_positions") }}</strong>
+            <div class="point-positions-list" data-cultivation-point-list="true"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="button">{{ tr("node.save_cultivation_positions") }}</button>
+        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

@@ -229,6 +229,7 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "node.image_usage": {"en": "Use image as", "it": "Usa immagine come"},
     "node.image_role_display": {"en": "Display", "it": "Vista prospetto"},
     "node.image_role_map": {"en": "Map", "it": "Vista mappa"},
+    "node.image_role_gallery": {"en": "Gallery", "it": "Galleria"},
     "node.current_images": {"en": "Current images", "it": "Immagini attuali"},
     "node.image_display_mode": {"en": "Image display mode", "it": "Modalita' visualizzazione immagine"},
     "node.crop_focus_x": {"en": "Crop focus X (%)", "it": "Fuoco ritaglio X (%)"},
@@ -288,6 +289,30 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
         "it": "Segui questa coltivazione attraverso anni e aree diverse.",
     },
     "node.clone_cultivations": {"en": "Clone cultivations", "it": "Clona coltivazioni"},
+    "node.manage_cultivation_positions": {
+        "en": "Manage cultivation positions",
+        "it": "Gestisci posizioni coltivazioni",
+    },
+    "node.manage_cultivation_positions_text": {
+        "en": "Select a cultivation from the list, move it on the map image, then save all positions together.",
+        "it": "Seleziona una coltivazione dalla lista, spostala sull'immagine mappa e poi salva tutte le posizioni insieme.",
+    },
+    "node.select_cultivation_to_move": {
+        "en": "Choose one cultivation at a time from this list, then adjust its points or area on the map.",
+        "it": "Scegli una coltivazione alla volta da questa lista, poi regola i suoi punti o la sua area sulla mappa.",
+    },
+    "node.manage_positions_point_help": {
+        "en": "Click the map to add a point, then drag markers to fine-tune them.",
+        "it": "Clicca sulla mappa per aggiungere un punto, poi trascina i marcatori per rifinirli.",
+    },
+    "node.manage_positions_area_help": {
+        "en": "Drag the four corners to reshape the selected cultivation area.",
+        "it": "Trascina i quattro angoli per ridisegnare l'area della coltivazione selezionata.",
+    },
+    "node.save_cultivation_positions": {
+        "en": "Save cultivation positions",
+        "it": "Salva posizioni coltivazioni",
+    },
     "node.clone_cultivations_text": {
         "en": "Bring annual cultivations from previous years into the current season.",
         "it": "Porta le coltivazioni annuali degli anni precedenti nella stagione corrente.",
@@ -413,6 +438,34 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "node.photos_help": {"en": "Additional images for this node.", "it": "Immagini aggiuntive per questo nodo."},
     "node.images_label": {"en": "Images", "it": "Immagini"},
+    "node.import_image": {"en": "Import image", "it": "Importa immagine"},
+    "node.import_image_help": {
+        "en": "Choose the image role, draw a crop area, align the lower reference line, preview the result, and save only when it looks right.",
+        "it": "Scegli il ruolo dell'immagine, disegna l'area di ritaglio, allinea la linea di riferimento inferiore, controlla l'anteprima e salva solo quando il risultato e' corretto.",
+    },
+    "node.original_image": {"en": "Original image", "it": "Immagine originale"},
+    "node.import_editor_help": {
+        "en": "Drag on the image to draw the crop box. Move the blue line so it follows the lower side you want to use as the horizontal reference.",
+        "it": "Trascina sull'immagine per disegnare il riquadro di ritaglio. Sposta la linea blu in modo che segua il lato inferiore da usare come riferimento orizzontale.",
+    },
+    "node.import_pick_image": {
+        "en": "Choose an image to start the preview editor.",
+        "it": "Scegli un'immagine per avviare l'editor di anteprima.",
+    },
+    "node.reset_crop": {"en": "Reset crop", "it": "Reimposta ritaglio"},
+    "node.preview_result": {"en": "Preview result", "it": "Anteprima risultato"},
+    "node.preview_pending": {
+        "en": "Preview the transformed image before saving.",
+        "it": "Genera l'anteprima dell'immagine trasformata prima di salvare.",
+    },
+    "node.preview_ready": {"en": "Preview ready", "it": "Anteprima pronta"},
+    "node.preview_needs_refresh": {
+        "en": "Preview needs refresh after the latest changes.",
+        "it": "L'anteprima va rigenerata dopo le ultime modifiche.",
+    },
+    "node.photo_role_prospect": {"en": "Prospect", "it": "Prospetto"},
+    "node.photo_role_map": {"en": "Map", "it": "Mappa"},
+    "node.photo_role_gallery": {"en": "Gallery", "it": "Galleria"},
     "node.activity_type": {"en": "Activity type", "it": "Tipo di attivita'"},
     "node.activity_date": {"en": "Date", "it": "Data"},
     "node.activity_history": {"en": "Activity history", "it": "Storico attivita'"},
@@ -433,6 +486,7 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
         "it": "Viene mostrata di default la foto piu' recente. Usa la timeline per passare alle immagini precedenti.",
     },
     "node.edit_photo": {"en": "Edit photo", "it": "Modifica foto"},
+    "node.edit_image": {"en": "Edit image", "it": "Modifica immagine"},
     "node.edit_entity": {"en": "Edit entity", "it": "Modifica entita'"},
     "node.value": {"en": "Value", "it": "Valore"},
     "node.position": {"en": "Position", "it": "Posizione"},
@@ -451,6 +505,7 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "node.entity_no_config_title": {"en": "Home Assistant is not configured", "it": "Home Assistant non configurato"},
     "node.photo_metadata": {"en": "Photo metadata", "it": "Metadati foto"},
     "node.photo_title": {"en": "Photo title", "it": "Titolo foto"},
+    "node.replace_image": {"en": "Replace image", "it": "Sostituisci immagine"},
     "node.default_photo": {"en": "Default photo", "it": "Foto predefinita"},
     "node.quantity_kg": {"en": "Quantity (kg)", "it": "Quantita' (kg)"},
     "node.edit_photo_description": {

@@ -14,6 +14,7 @@ from .forms import (
     HomeAssistantEntityForm,
     IrrigationZoneForm,
     MapSettingsForm,
+    NodeImageEditForm,
     NodeForm,
     NodeActivityForm,
     PhotoEditForm,
@@ -42,7 +43,7 @@ from .models import (
     TranslationEntry,
     DEFAULT_MARKER_COLOR_BY_NODE_TYPE,
 )
-from .utils import default_node_type, permission_required, save_uploaded_file
+from .utils import default_node_type, permission_required, save_data_url_upload, save_uploaded_file
 from .translations import DEFAULT_LOCALE, DEFAULT_TRANSLATIONS, SUPPORTED_LOCALES
 
 
@@ -580,6 +581,107 @@ def _point_positions_from_json(value: str | None) -> list[tuple[float, float]]:
     return positions
 
 
+def _node_image_role_path(node: GardenNode, image_role: str) -> str | None:
+    """Return the stored image path for a legacy node image role.
+
+    Parameters:
+        node: Node whose dedicated display or map image is being inspected.
+        image_role: Legacy role key, either ``display`` or ``map``.
+    """
+    if image_role == "map":
+        return node.map_image_path
+    return node.hero_image_path
+
+
+def _serialize_manageable_child(child: GardenNode) -> dict[str, object]:
+    """Build the client-side position editor payload for one direct child node.
+
+    Parameters:
+        child: Child node whose hotspot or area placement should be exposed.
+    """
+    return {
+        "id": child.id,
+        "title": child.title,
+        "node_type": child.node_type or "custom",
+        "overlay_shape": child.overlay_shape or "point",
+        "marker_color": child.marker_color_value,
+        "marker_icon": child.marker_icon_class or "",
+        "points": [{"x": x, "y": y} for x, y in child.point_positions],
+        "polygon": [{"x": x, "y": y} for x, y in child.area_polygon_points],
+        "cultivation_year": child.effective_cultivation_year,
+        "is_dead": child.is_dead,
+    }
+
+
+def _apply_manageable_child_position(child: GardenNode, payload: dict[str, object]) -> None:
+    """Apply edited client-side position data back to a child node.
+
+    Parameters:
+        child: Child node whose saved placement should be updated.
+        payload: Decoded JSON payload posted by the bulk position editor.
+    """
+    if child.overlay_shape == "area":
+        raw_polygon = payload.get("polygon")
+        if isinstance(raw_polygon, list):
+            polygon_points = _polygon_from_coordinate_pairs(
+                [
+                    (
+                        point.get("x") if isinstance(point, dict) else None,
+                        point.get("y") if isinstance(point, dict) else None,
+                    )
+                    for point in raw_polygon
+                ]
+            )
+            if len(polygon_points) == 4:
+                child.overlay_width, child.overlay_height = _polygon_bounds(polygon_points)
+                child.map_x, child.map_y = _polygon_centroid(polygon_points)
+                child.additional_positions_json = None
+                (
+                    child.area_corner_1_x,
+                    child.area_corner_1_y,
+                    child.area_corner_2_x,
+                    child.area_corner_2_y,
+                    child.area_corner_3_x,
+                    child.area_corner_3_y,
+                    child.area_corner_4_x,
+                    child.area_corner_4_y,
+                ) = (
+                    polygon_points[0][0],
+                    polygon_points[0][1],
+                    polygon_points[1][0],
+                    polygon_points[1][1],
+                    polygon_points[2][0],
+                    polygon_points[2][1],
+                    polygon_points[3][0],
+                    polygon_points[3][1],
+                )
+        return
+
+    raw_points = payload.get("points")
+    if not isinstance(raw_points, list):
+        return
+
+    point_positions = _point_positions_from_json(json.dumps(raw_points))
+    if not point_positions:
+        return
+
+    child.map_x = point_positions[0][0]
+    child.map_y = point_positions[0][1]
+    child.additional_positions_json = (
+        json.dumps([{"x": x, "y": y} for x, y in point_positions[1:]])
+        if len(point_positions) > 1
+        else None
+    )
+    child.area_corner_1_x = None
+    child.area_corner_1_y = None
+    child.area_corner_2_x = None
+    child.area_corner_2_y = None
+    child.area_corner_3_x = None
+    child.area_corner_3_y = None
+    child.area_corner_4_x = None
+    child.area_corner_4_y = None
+
+
 @bp.route("/")
 @login_required
 @permission_required("view_dashboard")
@@ -635,7 +737,12 @@ def map_settings():
         )
         settings.google_maps_zoom = form.google_maps_zoom.data or 19
 
-        uploaded_map = save_uploaded_file(
+        uploaded_map = save_data_url_upload(
+            form.processed_map_image_data.data,
+            "map",
+            image_kind="homepage_map",
+            subfolder="site",
+        ) or save_uploaded_file(
             form.map_image.data,
             "map",
             image_kind="homepage_map",
@@ -694,24 +801,19 @@ def node_detail(node_id: int):
         key=lambda photo: (photo.taken_at, photo.id),
         reverse=True,
     )
+    prospect_photos = node.photos_for_role("prospect")
+    map_photos = node.photos_for_role("map")
+    gallery_photos = node.photos_for_role("gallery")
+    prospect_photo = (
+        node.preferred_photo_for_role("prospect")
+        or node.preferred_photo_for_role("gallery")
+        or node.default_photo
+        or node.latest_photo
+    )
+    map_photo = node.preferred_photo_for_role("map")
     requested_history_range = request.args.get("ha_range")
     ha_history_range = requested_history_range if requested_history_range in {"1d", "7d"} else "1d"
-    requested_photo_id = request.args.get("photo", type=int)
-    selected_photo = None
-    if requested_photo_id is not None:
-        selected_photo = next(
-            (photo for photo in ordered_photos if photo.id == requested_photo_id),
-            None,
-        )
-    if selected_photo is None and ordered_photos:
-        selected_photo = node.default_photo or ordered_photos[0]
-
-    current_image_path = (
-        selected_photo.image_path
-        if selected_photo is not None
-        else node.display_image
-    )
-    display_image_path = current_image_path
+    display_image_path = node.display_image
     navigation_image_path = node.map_view_image
     visible_children = list(node.children)
     image_children = [
@@ -774,19 +876,20 @@ def node_detail(node_id: int):
         source_sections=source_sections,
         clone_year_range=year_range,
         cultivation_history=cultivation_history,
-        current_image_path=current_image_path,
         display_image_path=display_image_path,
         navigation_image_path=navigation_image_path,
-        selected_photo=selected_photo,
         ordered_photos=ordered_photos,
+        prospect_photo=prospect_photo,
+        map_photo=map_photo,
+        prospect_photos=prospect_photos,
+        map_photos=map_photos,
+        gallery_photos=gallery_photos,
         display_mode=display_mode,
         image_irrigation_zones=image_irrigation_zones,
         settings=_settings(),
         image_children=image_children,
         image_entities=image_entities,
         irrigation_zones=node.irrigation_zones,
-        photo_form=PhotoForm(prefix="photo"),
-        activity_form=_activity_form(),
         link_form=_external_link_form(),
         entity_form=entity_form,
         irrigation_zone_form=_irrigation_zone_form(),
@@ -819,6 +922,69 @@ def node_entity_history(node_id: int):
             "error": history_error,
             "charts": chart_payload,
         }
+    )
+
+
+@bp.route("/nodes/<int:node_id>/manage-positions", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def manage_cultivation_positions(node_id: int):
+    """Edit direct child cultivation placements from a single shared map view.
+
+    Parameters:
+        node_id: Identifier of the section or bed whose child positions should be managed.
+    """
+    node = GardenNode.query.get_or_404(node_id)
+    if not node.map_view_image:
+        flash("Add a map image to this node before managing cultivation positions.", "warning")
+        return redirect(url_for("main.edit_node", node_id=node.id))
+
+    manageable_children = [
+        child
+        for child in node.children
+        if child.has_hotspot
+    ]
+    if not manageable_children:
+        flash("There are no child cultivations with positions to manage yet.", "warning")
+        return redirect(url_for("main.node_detail", node_id=node.id))
+
+    form = DeleteForm()
+    if form.validate_on_submit():
+        try:
+            payload = json.loads(request.form.get("positions_payload", "[]"))
+        except (TypeError, ValueError):
+            payload = []
+
+        if not isinstance(payload, list):
+            payload = []
+
+        children_by_id = {child.id: child for child in manageable_children}
+        updated_count = 0
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            child_id = item.get("id")
+            try:
+                child_id = int(child_id)
+            except (TypeError, ValueError):
+                continue
+            child = children_by_id.get(child_id)
+            if child is None:
+                continue
+            _apply_manageable_child_position(child, item)
+            updated_count += 1
+
+        db.session.commit()
+        flash(f"Updated cultivation positions for {updated_count} item(s).", "success")
+        return redirect(url_for("main.node_detail", node_id=node.id))
+
+    return render_template(
+        "manage_cultivation_positions.html",
+        node=node,
+        manageable_children=manageable_children,
+        positions_payload=[_serialize_manageable_child(child) for child in manageable_children],
+        delete_form=form,
+        settings=_settings(),
     )
 
 
@@ -1124,7 +1290,12 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         )
 
         image_kind = "node_map" if form.hero_image_role.data == "map" else "node_display"
-        uploaded_image = save_uploaded_file(
+        uploaded_image = save_data_url_upload(
+            form.processed_hero_image_data.data,
+            f"node-{level}",
+            image_kind=image_kind,
+            subfolder=f"nodes/{node.id}",
+        ) or save_uploaded_file(
             form.hero_image.data,
             f"node-{level}",
             image_kind=image_kind,
@@ -1184,51 +1355,69 @@ def delete_node(node_id: int):
     return redirect(url_for("main.index"))
 
 
-@bp.route("/nodes/<int:node_id>/photos", methods=["POST"])
+@bp.route("/nodes/<int:node_id>/photos", methods=["GET", "POST"])
 @login_required
 @permission_required("manage_content")
 def add_photo(node_id: int):
-    """Upload one or more photos for a node.
+    """Open the node photo import flow and save the confirmed image.
 
     Parameters:
-        node_id: Identifier of the node receiving the uploaded photos.
+        node_id: Identifier of the node receiving the imported image.
     """
     node = GardenNode.query.get_or_404(node_id)
     form = PhotoForm(prefix="photo")
 
     if form.validate_on_submit():
-        uploaded_count = 0
-        for index, image in enumerate(form.images.data):
-            if image is None or not image.filename:
-                continue
+        image = form.image.data
+        taken_at = extract_exif_taken_at(image) or datetime.now(UTC)
+        image_path = save_data_url_upload(
+            form.processed_image_data.data,
+            f"photo-{node.id}",
+            image_kind="node_photo",
+            subfolder=f"nodes/{node.id}",
+        ) or save_uploaded_file(
+            image,
+            f"photo-{node.id}",
+            image_kind="node_photo",
+            subfolder=f"nodes/{node.id}",
+        )
 
-            taken_at = extract_exif_taken_at(image) or datetime.now(UTC)
-            image_path = save_uploaded_file(
-                image,
-                f"photo-{node.id}",
-                image_kind="node_photo",
-                subfolder=f"nodes/{node.id}",
-            )
-            photo = NodePhoto(
+        if not image_path:
+            flash("Image could not be saved. Try again.", "danger")
+            return render_template(
+                "photo_import_form.html",
+                form=form,
                 node=node,
-                title=filename_stem(image.filename),
-                caption=form.caption.data.strip() if form.caption.data else None,
-                image_path=image_path,
-                taken_at=taken_at,
-                is_default=node.default_photo is None and uploaded_count == 0,
-                sort_order=index,
+                settings=_settings(),
             )
-            db.session.add(photo)
-            uploaded_count += 1
+
+        photo = NodePhoto(
+            node=node,
+            title=form.title.data.strip() if form.title.data else filename_stem(image.filename),
+            caption=form.caption.data.strip() if form.caption.data else None,
+            image_path=image_path,
+            image_role=form.image_role.data,
+            taken_at=taken_at,
+            is_default=node.default_photo is None,
+            sort_order=len(node.photos),
+        )
+        db.session.add(photo)
         db.session.commit()
-        flash(f"Uploaded {uploaded_count} photo(s).", "success")
-    else:
-        flash("Photo could not be added. Check the form fields.", "danger")
+        flash("Image imported.", "success")
+        return redirect(url_for("main.node_detail", node_id=node.id))
 
-    return redirect(url_for("main.node_detail", node_id=node.id))
+    if request.method == "POST":
+        flash("Image could not be added. Check the form fields.", "danger")
+
+    return render_template(
+        "photo_import_form.html",
+        form=form,
+        node=node,
+        settings=_settings(),
+    )
 
 
-@bp.route("/nodes/<int:node_id>/activities", methods=["POST"])
+@bp.route("/nodes/<int:node_id>/activities", methods=["GET", "POST"])
 @login_required
 @permission_required("manage_content")
 def add_activity(node_id: int):
@@ -1251,31 +1440,41 @@ def add_activity(node_id: int):
         db.session.add(activity)
         db.session.flush()
 
-        for image in form.images.data or []:
-            if image is None or not image.filename:
-                continue
-            image_path = save_uploaded_file(
-                image,
-                f"activity-{activity.id}",
-                image_kind="activity_image",
-                subfolder=f"nodes/{node.id}",
-            )
-            if not image_path:
-                continue
+        image = form.image.data
+        image_path = save_data_url_upload(
+            form.processed_image_data.data,
+            f"activity-{activity.id}",
+            image_kind="activity_image",
+            subfolder=f"nodes/{node.id}",
+        ) or save_uploaded_file(
+            image,
+            f"activity-{activity.id}",
+            image_kind="activity_image",
+            subfolder=f"nodes/{node.id}",
+        )
+        if image_path:
             db.session.add(
                 NodeActivityImage(
                     activity=activity,
-                    title=filename_stem(image.filename),
+                    title=filename_stem(image.filename if image is not None else "activity-image"),
                     image_path=image_path,
                 )
             )
 
         db.session.commit()
         flash("Activity added.", "success")
-    else:
+        return redirect(url_for("main.node_detail", node_id=node.id))
+    if request.method == "POST":
         flash("Activity could not be added. Check the form fields.", "danger")
 
-    return redirect(url_for("main.node_detail", node_id=node.id))
+    return render_template(
+        "activity_form.html",
+        form=form,
+        activity=None,
+        node=node,
+        settings=_settings(),
+        delete_form=DeleteForm(),
+    )
 
 
 @bp.route("/activities/<int:activity_id>/edit", methods=["GET", "POST"])
@@ -1302,21 +1501,23 @@ def edit_activity(activity_id: int):
         activity.quantity_kg = float(form.quantity_kg.data) if form.quantity_kg.data is not None else None
         activity.description = form.description.data.strip()
 
-        for image in form.images.data or []:
-            if image is None or not image.filename:
-                continue
-            image_path = save_uploaded_file(
-                image,
-                f"activity-{activity.id}",
-                image_kind="activity_image",
-                subfolder=f"nodes/{activity.node_id}",
-            )
-            if not image_path:
-                continue
+        image = form.image.data
+        image_path = save_data_url_upload(
+            form.processed_image_data.data,
+            f"activity-{activity.id}",
+            image_kind="activity_image",
+            subfolder=f"nodes/{activity.node_id}",
+        ) or save_uploaded_file(
+            image,
+            f"activity-{activity.id}",
+            image_kind="activity_image",
+            subfolder=f"nodes/{activity.node_id}",
+        )
+        if image_path:
             db.session.add(
                 NodeActivityImage(
                     activity=activity,
-                    title=filename_stem(image.filename),
+                    title=filename_stem(image.filename if image is not None else "activity-image"),
                     image_path=image_path,
                 )
             )
@@ -1374,11 +1575,26 @@ def edit_photo(photo_id: int):
     if request.method == "GET":
         form.taken_at.data = photo.taken_at.date()
         form.is_default.data = photo.is_default
+        form.image_role.data = photo.image_role or "gallery"
 
     if form.validate_on_submit():
         photo.title = form.title.data.strip()
+        photo.image_role = form.image_role.data
         photo.caption = form.caption.data.strip() if form.caption.data else None
         photo.taken_at = datetime.combine(form.taken_at.data, datetime.min.time(), tzinfo=UTC)
+        uploaded_image = save_data_url_upload(
+            form.processed_image_data.data,
+            f"photo-{photo.node_id}",
+            image_kind="node_photo",
+            subfolder=f"nodes/{photo.node_id}",
+        ) or save_uploaded_file(
+            form.image.data,
+            f"photo-{photo.node_id}",
+            image_kind="node_photo",
+            subfolder=f"nodes/{photo.node_id}",
+        )
+        if uploaded_image:
+            photo.image_path = uploaded_image
         if form.is_default.data:
             _set_default_photo(photo.node, photo)
         elif photo.is_default and any(candidate.id != photo.id for candidate in photo.node.photos):
@@ -1386,13 +1602,68 @@ def edit_photo(photo_id: int):
         photo.sort_order = form.sort_order.data or 0
         db.session.commit()
         flash("Photo updated.", "success")
-        return redirect(url_for("main.node_detail", node_id=photo.node_id, photo=photo.id))
+        return redirect(url_for("main.node_detail", node_id=photo.node_id))
 
     return render_template(
         "photo_form.html",
         form=form,
         photo=photo,
         node=photo.node,
+        settings=_settings(),
+    )
+
+
+@bp.route("/nodes/<int:node_id>/images/<string:image_role>/edit", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def edit_node_image(node_id: int, image_role: str):
+    """Replace a legacy dedicated node image using the same preview editor as uploads.
+
+    Parameters:
+        node_id: Identifier of the node whose dedicated image should be replaced.
+        image_role: Dedicated image role, either ``display`` or ``map``.
+    """
+    node = GardenNode.query.get_or_404(node_id)
+    if image_role not in {"display", "map"}:
+        flash("Unknown node image role.", "danger")
+        return redirect(url_for("main.edit_node", node_id=node.id))
+
+    current_path = _node_image_role_path(node, image_role)
+    if not current_path:
+        flash("No image is currently stored for that role.", "warning")
+        return redirect(url_for("main.edit_node", node_id=node.id))
+
+    form = NodeImageEditForm()
+    if form.validate_on_submit():
+        image_kind = "node_map" if image_role == "map" else "node_display"
+        uploaded_image = save_data_url_upload(
+            form.processed_image_data.data,
+            f"node-{node.id}",
+            image_kind=image_kind,
+            subfolder=f"nodes/{node.id}",
+        ) or save_uploaded_file(
+            form.image.data,
+            f"node-{node.id}",
+            image_kind=image_kind,
+            subfolder=f"nodes/{node.id}",
+        )
+        if not uploaded_image:
+            flash("Image could not be saved. Try again.", "danger")
+        else:
+            if image_role == "map":
+                node.map_image_path = uploaded_image
+            else:
+                node.hero_image_path = uploaded_image
+            db.session.commit()
+            flash("Image updated.", "success")
+            return redirect(url_for("main.edit_node", node_id=node.id))
+
+    return render_template(
+        "node_image_edit_form.html",
+        form=form,
+        node=node,
+        image_role=image_role,
+        current_image_path=current_path,
         settings=_settings(),
     )
 

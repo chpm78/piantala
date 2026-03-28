@@ -410,6 +410,21 @@ img {
   font: inherit;
 }
 
+.input[type="file"] {
+  padding: 0.7rem 0.8rem;
+}
+
+.input[type="file"]::file-selector-button {
+  margin-right: 0.85rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+
 .input-textarea {
   min-height: 110px;
   resize: vertical;
@@ -728,6 +743,90 @@ img {
   opacity: 0.78;
 }
 
+.cultivation-manager {
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.cultivation-manager-sidebar {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.cultivation-manager-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.cultivation-manager-item {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.9);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.cultivation-manager-item.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 248, 236, 0.98);
+}
+
+.cultivation-manager-stage-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.cultivation-manager-stage {
+  min-height: 28rem;
+}
+
+.cultivation-manager-static-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.cultivation-manager-area {
+  position: absolute;
+  inset: 0;
+}
+
+.cultivation-manager-area .image-hotspot-area-polygon {
+  fill: rgba(47, 111, 79, 0.1);
+  stroke: rgba(47, 111, 79, 0.72);
+  stroke-width: 0.6;
+  vector-effect: non-scaling-stroke;
+}
+
+.cultivation-manager-area.is-selected .image-hotspot-area-polygon {
+  fill: rgba(47, 111, 79, 0.18);
+  stroke: rgba(47, 111, 79, 0.96);
+  stroke-width: 0.8;
+}
+
+.cultivation-manager-point {
+  pointer-events: none;
+}
+
+.cultivation-manager-point.is-selected {
+  opacity: 1;
+  filter: drop-shadow(0 0 0.45rem rgba(0, 0, 0, 0.22));
+}
+
+.cultivation-manager-form {
+  display: grid;
+  gap: 1rem;
+}
+
 .overlay-editor-layer {
   position: absolute;
   inset: 0;
@@ -800,6 +899,12 @@ img {
   border-radius: 14px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 900px) {
+  .cultivation-manager {
+    grid-template-columns: 1fr;
+  }
 }
 
 .searchable-select {
@@ -1324,6 +1429,137 @@ body.has-modal-open {
   background: color-mix(in srgb, var(--surface-2) 78%, white);
 }
 
+.photo-import-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+.photo-import-editor-shell,
+.photo-import-preview-shell {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  padding: 1rem;
+}
+
+.photo-import-editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+}
+
+.photo-import-stage,
+.photo-import-result-box {
+  position: relative;
+  min-height: 320px;
+  border-radius: 16px;
+  border: 1px dashed var(--line);
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.03) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(0, 0, 0, 0.03) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(0, 0, 0, 0.03) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(0, 0, 0, 0.03) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+.photo-import-stage-image,
+.photo-import-result-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.photo-import-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  text-align: center;
+}
+
+.photo-import-crop-box {
+  position: absolute;
+  border: 2px solid var(--accent);
+  background: rgba(47, 111, 79, 0.12);
+  cursor: move;
+}
+
+.photo-import-crop-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(32, 79, 56, 0.6);
+}
+
+.photo-import-handle,
+.photo-import-line-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid white;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.photo-import-handle.is-top-left {
+  left: -8px;
+  top: -8px;
+}
+
+.photo-import-handle.is-top-right {
+  right: -8px;
+  top: -8px;
+}
+
+.photo-import-handle.is-bottom-left {
+  left: -8px;
+  bottom: -8px;
+}
+
+.photo-import-handle.is-bottom-right {
+  right: -8px;
+  bottom: -8px;
+}
+
+.photo-import-reference-line {
+  position: absolute;
+  height: 0;
+  border-top: 3px solid #2d6cdf;
+  transform-origin: left center;
+}
+
+.photo-import-line-handle {
+  top: -10px;
+  background: #2d6cdf;
+}
+
+.photo-import-line-handle[data-photo-import-line-handle="start"] {
+  left: -8px;
+}
+
+.photo-import-line-handle[data-photo-import-line-handle="end"] {
+  right: -8px;
+}
+
+.photo-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.photo-role-pill {
+  margin-top: 0.35rem;
+}
+
 .detail-image-shell-helper {
   margin-top: 0;
   max-height: 360px;
@@ -1421,6 +1657,10 @@ body.has-modal-open {
 @media (max-width: 900px) {
   .three-col-grid,
   .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .photo-import-layout {
     grid-template-columns: 1fr;
   }
 

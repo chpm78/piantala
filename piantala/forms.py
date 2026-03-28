@@ -24,6 +24,11 @@ from .translations import SUPPORTED_LOCALES
 
 
 IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp"]
+PHOTO_ROLE_CHOICES = [
+    ("prospect", "Prospect"),
+    ("map", "Map"),
+    ("gallery", "Gallery"),
+]
 
 
 class LoginForm(FlaskForm):
@@ -70,6 +75,7 @@ class MapSettingsForm(FlaskForm):
         "Map image",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
     )
+    processed_map_image_data = HiddenField("Processed map image data")
     homepage_map_max_dimension = IntegerField(
         "Homepage map max size (px)",
         validators=[DataRequired(), NumberRange(min=400, max=8000)],
@@ -328,6 +334,7 @@ class NodeForm(FlaskForm):
         "Hero image",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
     )
+    processed_hero_image_data = HiddenField("Processed hero image data")
     hero_image_role = SelectField(
         "Image usage",
         choices=[
@@ -484,21 +491,49 @@ class NodeForm(FlaskForm):
 
 
 class PhotoForm(FlaskForm):
-    images = MultipleFileField(
-        "Images",
+    image = FileField(
+        "Image",
         validators=[DataRequired(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
     )
-    caption = TextAreaField("Shared caption", validators=[Optional(), Length(max=1000)])
-    submit = SubmitField("Upload photos")
+    title = StringField("Photo title", validators=[Optional(), Length(max=120)])
+    image_role = SelectField(
+        "Use image as",
+        choices=PHOTO_ROLE_CHOICES,
+        default="prospect",
+        validators=[DataRequired()],
+    )
+    caption = TextAreaField("Caption", validators=[Optional(), Length(max=1000)])
+    processed_image_data = HiddenField("Processed image data")
+    submit = SubmitField("Save image")
 
 
 class PhotoEditForm(FlaskForm):
     title = StringField("Photo title", validators=[DataRequired(), Length(max=120)])
+    image_role = SelectField(
+        "Use image as",
+        choices=PHOTO_ROLE_CHOICES,
+        default="prospect",
+        validators=[DataRequired()],
+    )
+    image = FileField(
+        "Image",
+        validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
     caption = TextAreaField("Caption", validators=[Optional(), Length(max=1000)])
     taken_at = DateField("Taken on", validators=[DataRequired()], format="%Y-%m-%d")
     is_default = BooleanField("Use as default image", default=False)
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    processed_image_data = HiddenField("Processed image data")
     submit = SubmitField("Save photo")
+
+
+class NodeImageEditForm(FlaskForm):
+    image = FileField(
+        "Image",
+        validators=[DataRequired(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    processed_image_data = HiddenField("Processed image data")
+    submit = SubmitField("Save image")
 
 
 class NodeActivityForm(FlaskForm):
@@ -510,10 +545,11 @@ class NodeActivityForm(FlaskForm):
         validators=[Optional(), NumberRange(min=0, max=1000000)],
     )
     description = TextAreaField("Description", validators=[DataRequired(), Length(max=4000)])
-    images = MultipleFileField(
-        "Images",
+    image = FileField(
+        "Image",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
     )
+    processed_image_data = HiddenField("Processed image data")
     submit = SubmitField("Save activity")
 
     def __init__(self, *args, activity_types_by_id: dict[int, object] | None = None, **kwargs) -> None:

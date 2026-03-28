@@ -72,16 +72,6 @@
       </label>
 
       <label>
-        <span>{{ tr("node.hero_image") }}</span>
-        {{ form.hero_image(class_="input") }}
-      </label>
-
-      <label>
-        <span>{{ tr("node.image_usage") }}</span>
-        {{ form.hero_image_role(class_="input") }}
-      </label>
-
-      <label>
         <span>{{ tr("node.image_display_mode") }}</span>
         {{ form.image_display_mode(class_="input") }}
       </label>
@@ -185,7 +175,7 @@
       </label>
 
       <div class="form-actions full-width">
-        {{ form.submit(class_="button", value=tr("common.save")) }}
+        {{ form.submit(class_="button", value=tr("common.save"), data_photo_import_submit="true") }}
         {% if node %}
           <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
         {% else %}
@@ -199,30 +189,66 @@
       <p>{{ tr("node.image_framing_text") }}</p>
     </div>
 
-    {% if node and (node.display_image or node.map_image_path) %}
+    {% if node %}
       <div class="inline-map-help">
         <h2>{{ tr("node.current_images") }}</h2>
-        <div class="card-grid">
-          {% if node.display_image %}
-            <article class="card">
-              <div class="card-image-shell" style="{{ node.image_display_style }}">
-                <img class="card-image" src="{{ url_for('static', filename=node.display_image) }}" alt="{{ tr('node.image_role_display') }}">
+        {% if node.hero_image_path or node.map_image_path or node.photos %}
+          <div class="stack-list">
+            {% if node.hero_image_path %}
+              <div class="list-item">
+                <a class="thumb-link" href="{{ url_for('static', filename=node.hero_image_path) }}" target="_blank" rel="noreferrer">
+                  <img class="thumb" src="{{ url_for('static', filename=node.hero_image_path) }}" alt="{{ tr('node.image_role_display') }}">
+                </a>
+                <div class="list-copy">
+                  <strong>{{ tr("node.image_role_display") }}</strong>
+                  <p><span class="status-pill">{{ tr("node.image_role_display") }}</span></p>
+                </div>
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='display') }}">{{ tr("common.edit") }}</a>
+                </div>
               </div>
-              <div class="card-body">
-                <strong>{{ tr("node.image_role_display") }}</strong>
+            {% endif %}
+            {% if node.map_image_path %}
+              <div class="list-item">
+                <a class="thumb-link" href="{{ url_for('static', filename=node.map_image_path) }}" target="_blank" rel="noreferrer">
+                  <img class="thumb" src="{{ url_for('static', filename=node.map_image_path) }}" alt="{{ tr('node.image_role_map') }}">
+                </a>
+                <div class="list-copy">
+                  <strong>{{ tr("node.image_role_map") }}</strong>
+                  <p><span class="status-pill">{{ tr("node.image_role_map") }}</span></p>
+                </div>
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='map') }}">{{ tr("common.edit") }}</a>
+                </div>
               </div>
-            </article>
-          {% endif %}
-          {% if node.map_image_path %}
-            <article class="card">
-              <div class="card-image-shell" style="{{ node.image_display_style }}">
-                <img class="card-image" src="{{ url_for('static', filename=node.map_image_path) }}" alt="{{ tr('node.image_role_map') }}">
+            {% endif %}
+            {% for photo in node.photos|sort(attribute='taken_at', reverse=true) %}
+              <div class="list-item">
+                <a class="thumb-link" href="{{ url_for('static', filename=photo.image_path) }}" target="_blank" rel="noreferrer">
+                  <img class="thumb" src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
+                </a>
+                <div class="list-copy">
+                  <strong>{{ photo.title }}</strong>
+                  {% if photo.is_default %}
+                    <p><span class="status-pill">{{ tr("node.default_photo") }}</span></p>
+                  {% endif %}
+                  <p><span class="status-pill">{{ tr("node.photo_role_" ~ (photo.image_role or 'gallery')) }}</span></p>
+                  <p>{{ tr("node.taken_on") }}: {{ photo.taken_at.strftime("%d %b %Y") }}</p>
+                  {% if photo.caption %}
+                    <p>{{ photo.caption }}</p>
+                  {% endif %}
+                </div>
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_photo', photo_id=photo.id) }}">{{ tr("common.edit") }}</a>
+                </div>
               </div>
-              <div class="card-body">
-                <strong>{{ tr("node.image_role_map") }}</strong>
-              </div>
-            </article>
-          {% endif %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("node.no_photos") }}</p>
+        {% endif %}
+        <div class="form-actions">
+          <a class="button" href="{{ url_for('main.add_photo', node_id=node.id) }}">{{ tr("node.import_image") }}</a>
         </div>
       </div>
     {% endif %}

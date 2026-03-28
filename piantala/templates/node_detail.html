@@ -48,6 +48,9 @@
           {% if node.can_have_children() %}
             <a class="button" href="{{ url_for('main.create_child_node', node_id=node.id) }}">{{ tr("node.add_child") }}</a>
           {% endif %}
+          {% if navigation_image_path and image_children %}
+            <a class="button button-secondary" href="{{ url_for('main.manage_cultivation_positions', node_id=node.id) }}">{{ tr("node.manage_cultivation_positions") }}</a>
+          {% endif %}
           <a class="button button-secondary" href="{{ url_for('main.edit_node', node_id=node.id) }}">{{ tr("node.edit_node") }}</a>
         </div>
       {% endif %}
@@ -56,9 +59,6 @@
     {% if available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3] %}
       <section class="panel">
         <form method="get" class="inline-toggle" data-node-filters="true">
-          {% if selected_photo %}
-            <input type="hidden" name="photo" value="{{ selected_photo.id }}">
-          {% endif %}
           {% if selected_source_section_id %}
             <input type="hidden" name="clone_section_id" value="{{ selected_source_section_id }}">
           {% endif %}
@@ -93,7 +93,7 @@
       </section>
     {% endif %}
 
-    {% set show_display_panel = display_image_path and (ordered_photos or node.hero_image_path or (navigation_image_path and navigation_image_path != display_image_path)) %}
+    {% set show_display_panel = display_image_path %}
 
     {% if show_display_panel %}
       <div class="inline-map-help">
@@ -102,11 +102,11 @@
             <h2>{{ tr("node.display_view") }}</h2>
             <p>{{ tr("node.display_view_text") }}</p>
           </div>
-          {% if selected_photo %}
+          {% if prospect_photo %}
             <div class="timeline-current-meta">
-              <strong>{{ selected_photo.taken_at.strftime("%d %b %Y") }}</strong>
-              {% if selected_photo.caption %}
-                <span>{{ selected_photo.caption }}</span>
+              <strong>{{ prospect_photo.taken_at.strftime("%d %b %Y") }}</strong>
+              {% if prospect_photo.caption %}
+                <span>{{ prospect_photo.caption }}</span>
               {% endif %}
             </div>
           {% endif %}
@@ -120,19 +120,6 @@
             >
           </div>
         </div>
-        {% if ordered_photos %}
-          <div class="photo-timeline" aria-label="Photo timeline">
-            {% for photo in ordered_photos %}
-              <a
-                class="timeline-chip {% if selected_photo and selected_photo.id == photo.id %}is-active{% endif %}"
-                href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None, display=display_mode if display_mode != 'cultivations' else None, ha_range=ha_history_range if ha_history_range != '1d' else None) }}"
-              >
-                <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
-                <span>{{ photo.taken_at.strftime("%b %Y") }}</span>
-              </a>
-            {% endfor %}
-          </div>
-        {% endif %}
       </div>
     {% endif %}
 
@@ -143,6 +130,14 @@
             <h2>{{ tr("node.visual_navigation") }}</h2>
             <p>{{ tr("node.hotspots_help") }}</p>
           </div>
+          {% if map_photo %}
+            <div class="timeline-current-meta">
+              <strong>{{ map_photo.taken_at.strftime("%d %b %Y") }}</strong>
+              {% if map_photo.caption %}
+                <span>{{ map_photo.caption }}</span>
+              {% endif %}
+            </div>
+          {% endif %}
         </div>
         <div class="garden-map image-overlay">
           <div class="image-stage">
@@ -367,9 +362,6 @@
       </div>
 
       <form method="get" class="form-grid">
-        {% if selected_photo %}
-          <input type="hidden" name="photo" value="{{ selected_photo.id }}">
-        {% endif %}
         <input type="hidden" name="year" value="{{ selected_year or '' }}" data-node-filter-proxy="year">
         <input type="hidden" name="show_dead" value="{{ '1' if show_dead_children else '' }}" data-node-filter-proxy="show_dead">
         <input type="hidden" name="display" value="{{ display_mode }}" data-node-filter-proxy="display">
@@ -434,11 +426,43 @@
         <p>{{ tr("node.photos_help") }}</p>
       </div>
 
-      {% if ordered_photos %}
+      {% if ordered_photos or node.hero_image_path or node.map_image_path %}
         <div class="stack-list">
+          {% if node.hero_image_path %}
+            <div class="list-item">
+              <a class="thumb-link" href="{{ url_for('static', filename=node.hero_image_path) }}" target="_blank" rel="noreferrer">
+                <img class="thumb" src="{{ url_for('static', filename=node.hero_image_path) }}" alt="{{ tr('node.image_role_display') }}">
+              </a>
+              <div class="list-copy">
+                <strong>{{ tr("node.image_role_display") }}</strong>
+                <p><span class="status-pill">{{ tr("node.image_role_display") }}</span></p>
+              </div>
+              {% if current_user.has_permission('manage_content') %}
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='display') }}">{{ tr("common.edit") }}</a>
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
+          {% if node.map_image_path %}
+            <div class="list-item">
+              <a class="thumb-link" href="{{ url_for('static', filename=node.map_image_path) }}" target="_blank" rel="noreferrer">
+                <img class="thumb" src="{{ url_for('static', filename=node.map_image_path) }}" alt="{{ tr('node.image_role_map') }}">
+              </a>
+              <div class="list-copy">
+                <strong>{{ tr("node.image_role_map") }}</strong>
+                <p><span class="status-pill">{{ tr("node.image_role_map") }}</span></p>
+              </div>
+              {% if current_user.has_permission('manage_content') %}
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='map') }}">{{ tr("common.edit") }}</a>
+                </div>
+              {% endif %}
+            </div>
+          {% endif %}
           {% for photo in ordered_photos %}
             <div class="list-item">
-              <a class="thumb-link" href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None) }}">
+              <a class="thumb-link" href="{{ url_for('static', filename=photo.image_path) }}" target="_blank" rel="noreferrer">
                 <img class="thumb" src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
               </a>
               <div class="list-copy">
@@ -446,6 +470,7 @@
                 {% if photo.is_default %}
                   <p><span class="status-pill">{{ tr("node.default_photo") }}</span></p>
                 {% endif %}
+                <p><span class="status-pill">{{ tr("node.photo_role_" ~ (photo.image_role or 'gallery')) }}</span></p>
                 {% set item = photo %}
                 {% include "_audit_meta.html" %}
                 <p>{{ tr("node.taken_on") }}: {{ photo.taken_at.strftime("%d %b %Y") }}</p>
@@ -474,19 +499,9 @@
       {% endif %}
 
       {% if current_user.has_permission('manage_content') %}
-        <form method="post" enctype="multipart/form-data" action="{{ url_for('main.add_photo', node_id=node.id) }}" class="form-grid">
-          {{ photo_form.hidden_tag() }}
-          <label class="full-width">
-            <span>{{ tr("node.images_label") }}</span>
-            {{ photo_form.images(class_="input", multiple=true) }}
-            <small class="hint">{{ tr("node.upload_hint") }}</small>
-          </label>
-          <label class="full-width">
-            <span>{{ tr("node.shared_caption") }}</span>
-            {{ photo_form.caption(class_="input input-textarea") }}
-          </label>
-          {{ photo_form.submit(class_="button", value=tr("common.save")) }}
-        </form>
+        <div class="form-actions">
+          <a class="button" href="{{ url_for('main.add_photo', node_id=node.id) }}">{{ tr("node.import_image") }}</a>
+        </div>
       {% endif %}
     </article>
 
@@ -540,34 +555,9 @@
       {% endif %}
 
       {% if current_user.has_permission('manage_content') %}
-        <form method="post" enctype="multipart/form-data" action="{{ url_for('main.add_activity', node_id=node.id) }}" class="form-grid">
-          {{ activity_form.hidden_tag() }}
-          <label>
-            <span>{{ tr("node.activity_type") }}</span>
-            {{ activity_form.activity_type_id(class_="input") }}
-          </label>
-          <label>
-            <span>{{ tr("node.activity_date") }}</span>
-            {{ activity_form.happened_on(class_="input") }}
-          </label>
-          <label>
-            <span>{{ tr("node.quantity_kg") }}</span>
-            {{ activity_form.quantity_kg(class_="input") }}
-            {% for error in activity_form.quantity_kg.errors %}
-              <small class="field-error">{{ error }}</small>
-            {% endfor %}
-          </label>
-          <label class="full-width">
-            <span>{{ tr("node.description") }}</span>
-            {{ activity_form.description(class_="input input-textarea") }}
-          </label>
-          <label class="full-width">
-            <span>{{ tr("node.images_label") }}</span>
-            {{ activity_form.images(class_="input", multiple=true) }}
-            <small class="hint">{{ tr("node.activity_images_hint") }}</small>
-          </label>
-          {{ activity_form.submit(class_="button", value=tr("node.add_activity")) }}
-        </form>
+        <div class="form-actions">
+          <a class="button" href="{{ url_for('main.add_activity', node_id=node.id) }}">{{ tr("node.add_activity") }}</a>
+        </div>
       {% endif %}
     </article>
 
@@ -647,9 +637,6 @@
         </div>
         {% if node.ha_entities %}
           <form method="get" class="inline-toggle" data-ha-history-controls="true" data-node-id="{{ node.id }}">
-            {% if selected_photo %}
-              <input type="hidden" name="photo" value="{{ selected_photo.id }}">
-            {% endif %}
             {% if selected_year is not none %}
               <input type="hidden" name="year" value="{{ selected_year }}">
             {% endif %}

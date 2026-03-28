@@ -360,9 +360,13 @@ class GardenNode(AuditMixin, db.Model):
         """Return the image path that should represent this node."""
         if self.hero_image_path:
             return self.hero_image_path
-        if self.default_photo:
+        if self.preferred_photo_for_role("prospect"):
+            return self.preferred_photo_for_role("prospect").image_path
+        if self.preferred_photo_for_role("gallery"):
+            return self.preferred_photo_for_role("gallery").image_path
+        if self.default_photo and (self.default_photo.image_role or "gallery") != "map":
             return self.default_photo.image_path
-        if self.latest_photo:
+        if self.latest_photo and (self.latest_photo.image_role or "gallery") != "map":
             return self.latest_photo.image_path
         return None
 
@@ -371,6 +375,8 @@ class GardenNode(AuditMixin, db.Model):
         """Return the image path used for overlays and top-view navigation."""
         if self.map_image_path:
             return self.map_image_path
+        if self.preferred_photo_for_role("map"):
+            return self.preferred_photo_for_role("map").image_path
         return self.display_image
 
     @property
@@ -402,6 +408,29 @@ class GardenNode(AuditMixin, db.Model):
             if photo.is_default:
                 return photo
         return None
+
+    def photos_for_role(self, role: str) -> list["NodePhoto"]:
+        """Return node photos matching a specific display role.
+
+        Parameters:
+            role: Image role such as `prospect`, `map`, or `gallery`.
+        """
+        return sorted(
+            [photo for photo in self.photos if (photo.image_role or "gallery") == role],
+            key=lambda photo: (photo.taken_at, photo.id),
+            reverse=True,
+        )
+
+    def preferred_photo_for_role(self, role: str) -> "NodePhoto | None":
+        """Return the best photo candidate for one role.
+
+        Parameters:
+            role: Image role such as `prospect`, `map`, or `gallery`.
+        """
+        matching_photos = self.photos_for_role(role)
+        if not matching_photos:
+            return None
+        return next((photo for photo in matching_photos if photo.is_default), matching_photos[0])
 
     def breadcrumbs(self) -> list["GardenNode"]:
         """Return the ancestor trail from the root node to this node."""
@@ -617,6 +646,7 @@ class NodePhoto(AuditMixin, db.Model):
     title = db.Column(db.String(120), nullable=False)
     caption = db.Column(db.Text, nullable=True)
     image_path = db.Column(db.String(255), nullable=False)
+    image_role = db.Column(db.String(16), nullable=False, default="gallery")
     taken_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(UTC))
     is_default = db.Column(db.Boolean, nullable=False, default=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
@@ -1710,6 +1740,10 @@ def sync_schema() -> None:
             "updated_by_name": (
                 "ALTER TABLE node_photos "
                 "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "image_role": (
+                "ALTER TABLE node_photos "
+                "ADD COLUMN image_role VARCHAR(16) NOT NULL DEFAULT 'gallery'"
             ),
             "taken_at": (
                 "ALTER TABLE node_photos "

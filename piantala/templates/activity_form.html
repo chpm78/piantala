@@ -9,18 +9,18 @@
         <a class="text-link" href="{{ url_for('main.node_detail', node_id=crumb.id) }}">{{ crumb.title }}</a>
       {% endfor %}
       <span>/</span>
-      <span>{{ tr("node.edit_activity") }}</span>
+      <span>{{ tr("node.edit_activity") if activity else tr("node.add_activity") }}</span>
     </div>
 
     <div class="panel-header">
       <div>
         <p class="eyebrow">{{ tr("node.activities") }}</p>
-        <h1>{{ tr("node.edit_activity") }}</h1>
+        <h1>{{ tr("node.edit_activity") if activity else tr("node.add_activity") }}</h1>
         <p>{{ tr("node.activity_help") }}</p>
       </div>
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="form-grid">
+    <form method="post" enctype="multipart/form-data" class="form-grid" data-photo-import-editor="true">
       {{ form.hidden_tag() }}
 
       <label>
@@ -48,9 +48,55 @@
 
       <label class="full-width">
         <span>{{ tr("node.images_label") }}</span>
-        {{ form.images(class_="input", multiple=true) }}
+        {{ form.image(class_="input", accept="image/*", data_photo_import_file="true") }}
         <small class="hint">{{ tr("node.activity_images_hint") }}</small>
       </label>
+
+      <div
+        class="photo-import-stage full-width"
+        data-photo-import-stage="true"
+        data-preview-ready-text="{{ tr('node.preview_ready') }}"
+        data-preview-dirty-text="{{ tr('node.preview_needs_refresh') }}"
+      >
+        <img
+          alt="{{ tr('node.original_image') }}"
+          class="photo-import-stage-image"
+          data-photo-import-image="true"
+          hidden
+        >
+        <div class="photo-import-crop-box" data-photo-import-crop-box="true" hidden>
+          <button type="button" class="photo-import-handle is-top-left" data-photo-import-handle="top-left" aria-label="Top left"></button>
+          <button type="button" class="photo-import-handle is-top-right" data-photo-import-handle="top-right" aria-label="Top right"></button>
+          <button type="button" class="photo-import-handle is-bottom-left" data-photo-import-handle="bottom-left" aria-label="Bottom left"></button>
+          <button type="button" class="photo-import-handle is-bottom-right" data-photo-import-handle="bottom-right" aria-label="Bottom right"></button>
+        </div>
+        <div class="photo-import-reference-line" data-photo-import-line="true" hidden>
+          <button type="button" class="photo-import-line-handle" data-photo-import-line-handle="start" aria-label="Line start"></button>
+          <button type="button" class="photo-import-line-handle" data-photo-import-line-handle="end" aria-label="Line end"></button>
+        </div>
+        <div class="photo-import-empty muted" data-photo-import-empty="true">{{ tr("node.import_pick_image") }}</div>
+      </div>
+
+      <div class="photo-import-preview-shell full-width" data-photo-import-preview-shell="true" hidden>
+        <div class="photo-import-editor-toolbar">
+          <strong>{{ tr("node.preview_result") }}</strong>
+          <span class="muted" data-photo-import-status="true">{{ tr("node.preview_pending") }}</span>
+        </div>
+        <div class="photo-import-result-box">
+          <img
+            alt="{{ tr('node.preview_result') }}"
+            class="photo-import-result-image"
+            data-photo-import-result="true"
+            hidden
+          >
+          <div class="photo-import-empty muted" data-photo-import-result-empty="true">{{ tr("node.preview_pending") }}</div>
+        </div>
+      </div>
+
+      <div class="photo-import-actions full-width">
+        <button type="button" class="button button-secondary" data-photo-import-reset="true">{{ tr("node.reset_crop") }}</button>
+        <button type="button" class="button" data-photo-import-preview="true">{{ tr("node.preview_result") }}</button>
+      </div>
 
       {% if activity.images %}
         <div class="activity-image-grid">
@@ -63,18 +109,20 @@
       {% endif %}
 
       <div class="form-actions">
-        {{ form.submit(class_="button", value=tr("common.save")) }}
+        {{ form.submit(class_="button", value=tr("common.save"), data_photo_import_submit="true") }}
         <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
       </div>
     </form>
 
-    <form method="post" action="{{ url_for('main.delete_activity', activity_id=activity.id) }}" class="inline-delete">
-      {{ delete_form.hidden_tag() }}
-      <label class="inline-check">
-        {{ delete_form.remove_files(id="delete-activity-form-remove-files") }}
-        <span>{{ tr("common.remove_uploaded_files") }}</span>
-      </label>
-      <button type="submit" class="button button-danger" data-confirm="Delete this activity?">{{ tr("common.delete") }}</button>
-    </form>
+    {% if activity %}
+      <form method="post" action="{{ url_for('main.delete_activity', activity_id=activity.id) }}" class="inline-delete">
+        {{ delete_form.hidden_tag() }}
+        <label class="inline-check">
+          {{ delete_form.remove_files(id="delete-activity-form-remove-files") }}
+          <span>{{ tr("common.remove_uploaded_files") }}</span>
+        </label>
+        <button type="submit" class="button button-danger" data-confirm="Delete this activity?">{{ tr("common.delete") }}</button>
+      </form>
+    {% endif %}
   </section>
 {% endblock %}

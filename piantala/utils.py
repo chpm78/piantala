@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from functools import wraps
 from pathlib import Path
+from urllib.parse import unquote
 from uuid import uuid4
 
 from flask import abort, current_app, flash
@@ -49,6 +52,59 @@ def save_uploaded_file(
     destination_dir.mkdir(parents=True, exist_ok=True)
     destination = destination_dir / unique_name
     file_storage.save(destination)
+    settings = GardenSettings.get_or_create()
+    optimize_image_file(
+        destination,
+        max_dimension=max_dimension_for_kind(settings, image_kind),
+        jpeg_quality=current_app.config["IMAGE_JPEG_QUALITY"],
+        size_threshold=0,
+        force=True,
+    )
+    return f"uploads/{destination.relative_to(upload_dir).as_posix()}"
+
+
+def save_data_url_upload(
+    data_url: str | None,
+    prefix: str,
+    *,
+    image_kind: str = "node_photo",
+    subfolder: str | None = None,
+) -> str | None:
+    """Store an image received as a browser data URL in the upload directory.
+
+    Parameters:
+        data_url: Base64-encoded browser data URL containing the processed image.
+        prefix: Prefix added to the generated unique file name.
+        image_kind: Logical upload category used to choose compression settings.
+        subfolder: Optional relative upload subfolder such as `nodes/12`.
+    """
+    if not data_url or ";base64," not in data_url:
+        return None
+
+    from .models import GardenSettings
+
+    header, encoded_data = data_url.split(";base64,", 1)
+    mime_type = header.removeprefix("data:").strip().lower()
+    extension = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }.get(mime_type, ".jpg")
+
+    try:
+        payload = base64.b64decode(unquote(encoded_data), validate=True)
+    except (ValueError, binascii.Error):
+        return None
+
+    unique_name = f"{prefix}-{uuid4().hex}{extension}"
+    upload_dir = Path(current_app.config["UPLOAD_FOLDER"])
+    default_subfolder = "site" if image_kind == "homepage_map" else "misc"
+    destination_dir = upload_dir / Path(subfolder or default_subfolder)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / unique_name
+    destination.write_bytes(payload)
+
     settings = GardenSettings.get_or_create()
     optimize_image_file(
         destination,

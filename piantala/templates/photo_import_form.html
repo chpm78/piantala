@@ -9,26 +9,27 @@
         <a class="text-link" href="{{ url_for('main.node_detail', node_id=crumb.id) }}">{{ crumb.title }}</a>
       {% endfor %}
       <span>/</span>
-      <span>{{ tr("node.edit_photo") }}</span>
+      <span>{{ tr("node.import_image") }}</span>
     </div>
 
     <div class="panel-header">
       <div>
         <p class="eyebrow">{{ tr("node.photo_metadata") }}</p>
-        <h1>{{ tr("node.edit_photo") }}</h1>
-        <p>{{ tr("node.edit_photo_description") }}</p>
+        <h1>{{ tr("node.import_image") }}</h1>
+        <p>{{ tr("node.import_image_help") }}</p>
       </div>
     </div>
 
-    <div class="photo-edit-preview">
-      <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
-    </div>
-
-    <form method="post" enctype="multipart/form-data" class="form-grid" data-photo-import-editor="true">
+    <form
+      method="post"
+      enctype="multipart/form-data"
+      class="form-grid"
+      data-photo-import-editor="true"
+    >
       {{ form.hidden_tag() }}
 
       <label class="full-width">
-        <span>{{ tr("node.replace_image") }}</span>
+        <span>{{ tr("node.hero_image") }}</span>
         {{ form.image(class_="input", accept="image/*", data_photo_import_file="true") }}
         {% for error in form.image.errors %}
           <small class="field-error">{{ error }}</small>
@@ -38,40 +39,16 @@
       <label>
         <span>{{ tr("node.image_usage") }}</span>
         {{ form.image_role(class_="input") }}
-        {% for error in form.image_role.errors %}
-          <small class="field-error">{{ error }}</small>
-        {% endfor %}
       </label>
 
       <label>
         <span>{{ tr("node.photo_title") }}</span>
         {{ form.title(class_="input") }}
-        {% for error in form.title.errors %}
-          <small class="field-error">{{ error }}</small>
-        {% endfor %}
-      </label>
-
-      <label>
-        <span>{{ tr("node.taken_on") }}</span>
-        {{ form.taken_at(class_="input") }}
-        {% for error in form.taken_at.errors %}
-          <small class="field-error">{{ error }}</small>
-        {% endfor %}
-      </label>
-
-      <label class="inline-check full-width">
-        {{ form.is_default() }}
-        <span>{{ tr("node.default_photo") }}</span>
       </label>
 
       <label class="full-width">
         <span>Caption</span>
         {{ form.caption(class_="input input-textarea") }}
-      </label>
-
-      <label>
-        <span>Sort order</span>
-        {{ form.sort_order(class_="input") }}
       </label>
 
       <div class="photo-import-layout full-width">
@@ -128,7 +105,7 @@
       </div>
 
       <div class="form-actions">
-        {{ form.submit(class_="button", value=tr("common.save"), data_photo_import_submit="true") }}
+        {{ form.submit(class_="button", value=tr("common.save"), disabled=true, data_photo_import_submit="true") }}
         <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
       </div>
     </form>
