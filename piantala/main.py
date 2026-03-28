@@ -1218,7 +1218,6 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         if node is None:
             node = GardenNode(parent=parent, level=level)
             db.session.add(node)
-            db.session.flush()
 
         node.title = form.title.data.strip()
         node.node_type = form.node_type.data
@@ -1329,6 +1328,11 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             if level == 1 and use_geo_map and form.geo_lng.data is not None
             else None
         )
+
+        if node.id is None:
+            # Assign required fields before flushing so SQLite does not see a
+            # partially initialized node with NULL title/type values.
+            db.session.flush()
 
         image_kind = "node_map" if form.hero_image_role.data == "map" else "node_display"
         uploaded_image = save_data_url_upload(

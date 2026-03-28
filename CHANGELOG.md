@@ -4,7 +4,12 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
-## [0.3.3] - Unreleased
+## [0.3.4] - Unreleased
+
+### Fixed
+- New cultivations now save correctly without triggering a `NOT NULL constraint failed: garden_nodes.node_type` error during the initial flush.
+
+## [0.3.3] - 2026-03-28
 
 ### Fixed
 - Static brand assets now use versioned URLs so remote deployments refresh the icon, stylesheet, and script without stale browser cache.
