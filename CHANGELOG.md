@@ -4,7 +4,13 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
-## [0.3.2] - Unreleased
+## [0.3.3] - Unreleased
+
+### Fixed
+- Static brand assets now use versioned URLs so remote deployments refresh the icon, stylesheet, and script without stale browser cache.
+- The top navigation brand now keeps the icon, app name, and version on a single row with a smaller icon size.
+
+## [0.3.2] - 2026-03-28
 
 ### Added
 - Irrigation zones can now define additional four-corner map areas while reusing the same texture and color styling as the main zone.
