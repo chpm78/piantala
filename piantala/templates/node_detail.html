@@ -85,7 +85,7 @@
               {% endif %}
               <input type="hidden" name="ha_range" value="{{ ha_history_range }}">
               {% if available_cultivation_years %}
-                <label>
+                <label class="inline-select-label">
                   <span>{{ tr("node.cultivation_year_view") }}</span>
                   <select name="year" class="input" data-node-filter-year="true">
                     <option value="" {% if selected_year is none %}selected{% endif %}>{{ tr("node.all_years") }}</option>
@@ -95,18 +95,19 @@
                   </select>
                 </label>
               {% endif %}
-              <label class="inline-check">
-                <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} data-node-filter-dead="true">
-                <span>{{ tr("node.show_dead_plants") }}</span>
-              </label>
               <label>
-                <span>{{ tr("node.overlay_display_mode") }}</span>
                 <select name="display" class="input" data-node-filter-display="true">
                   <option value="irrigation" {% if display_mode == "irrigation" %}selected{% endif %}>{{ tr("node.display_irrigation_only") }}</option>
                   <option value="cultivations" {% if display_mode == "cultivations" %}selected{% endif %}>{{ tr("node.display_cultivations_only") }}</option>
                   <option value="both" {% if display_mode == "both" %}selected{% endif %}>{{ tr("node.display_cultivations_and_irrigation") }}</option>
                 </select>
               </label>
+              {% if has_dead_children %}
+                <label class="inline-check">
+                  <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} data-node-filter-dead="true">
+                  <span>{{ tr("node.show_dead_plants") }}</span>
+                </label>
+              {% endif %}
             </form>
           </section>
         {% endif %}
@@ -118,7 +119,7 @@
               alt="{{ node.title }}"
             >
             {% for child in image_children %}
-              {% set child_hidden = (display_mode == 'irrigation') or (not show_dead_children and child.is_dead) or (child.life_cycle == 'annual' and selected_year is not none and child.effective_cultivation_year != selected_year) %}
+              {% set child_hidden = (display_mode == 'irrigation') or (not show_dead_children and child.is_dead) or (child.life_cycle == 'annual' and selected_year is not none and child.effective_cultivation_year != selected_year) or (child.life_cycle == 'perennial' and selected_year is not none and child.planting_date and child.planting_date.year > selected_year) %}
               {% if child.overlay_shape == 'area' %}
                 <a
                   class="image-hotspot-area-overlay"
@@ -131,6 +132,7 @@
                   data-overlay-item="true"
                   data-life-cycle="{{ child.life_cycle or '' }}"
                   data-cultivation-year="{{ child.effective_cultivation_year or '' }}"
+                  data-planting-year="{{ child.planting_date.year if child.planting_date else '' }}"
                   data-is-dead="{{ 'true' if child.is_dead else 'false' }}"
                   {% if child_hidden %}hidden{% endif %}
                 >
@@ -154,6 +156,7 @@
                   data-overlay-item="true"
                   data-life-cycle="{{ child.life_cycle or '' }}"
                   data-cultivation-year="{{ child.effective_cultivation_year or '' }}"
+                  data-planting-year="{{ child.planting_date.year if child.planting_date else '' }}"
                   data-is-dead="{{ 'true' if child.is_dead else 'false' }}"
                   {% if child_hidden %}hidden{% endif %}
                 >
@@ -293,8 +296,8 @@
 
     <div class="card-grid">
         {% for child in visible_children %}
-          {% set child_hidden = (display_mode == 'irrigation') or (not show_dead_children and child.is_dead) or (child.life_cycle == 'annual' and selected_year is not none and child.effective_cultivation_year != selected_year) %}
-          <article class="card {% if child.is_dead %}is-dead{% endif %}" data-node-child-card="true" data-life-cycle="{{ child.life_cycle or '' }}" data-cultivation-year="{{ child.effective_cultivation_year or '' }}" data-is-dead="{{ 'true' if child.is_dead else 'false' }}" {% if child_hidden %}hidden{% endif %}>
+          {% set child_hidden = (display_mode == 'irrigation') or (not show_dead_children and child.is_dead) or (child.life_cycle == 'annual' and selected_year is not none and child.effective_cultivation_year != selected_year) or (child.life_cycle == 'perennial' and selected_year is not none and child.planting_date and child.planting_date.year > selected_year) %}
+          <article class="card {% if child.is_dead %}is-dead{% endif %}" data-node-child-card="true" data-life-cycle="{{ child.life_cycle or '' }}" data-cultivation-year="{{ child.effective_cultivation_year or '' }}" data-planting-year="{{ child.planting_date.year if child.planting_date else '' }}" data-is-dead="{{ 'true' if child.is_dead else 'false' }}" {% if child_hidden %}hidden{% endif %}>
             {% if child.display_image %}
               <a class="card-media-link" href="{{ url_for('main.node_detail', node_id=child.id) }}">
                 <div class="card-image-shell" style="{{ child.image_display_style }}">

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "piantala"
-version = "0.3.4"
+version = "0.3.5"
 description = "Flask garden management app with map-based navigation, roles, and plant records."
 readme = "README.md"
 requires-python = ">=3.11"

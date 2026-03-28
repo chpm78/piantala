@@ -907,6 +907,8 @@ img {
   stroke-width: 0.7;
   vector-effect: non-scaling-stroke;
   stroke-dasharray: 2.8 1.8;
+  cursor: move;
+  pointer-events: auto;
 }
 
 .overlay-editor-handle {
@@ -1383,7 +1385,29 @@ body.has-modal-open {
 }
 
 .inline-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.85rem;
   margin-bottom: 1rem;
+}
+
+.inline-toggle > label {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.inline-toggle > label.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.inline-toggle > label.inline-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .status-pill {

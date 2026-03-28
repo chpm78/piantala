@@ -4,7 +4,15 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
-## [0.3.4] - Unreleased
+## [0.3.5] - Unreleased
+
+### Fixed
+- Section year selectors now include years covered by perennial cultivations, and perennial overlays/cards only appear from their planting year onward.
+- Section filter controls are now aligned on a single row, with year and dead-plant controls only shown when relevant.
+- Area-based editors now let you drag the full polygon from inside the shape, while corner drags still reshape individual corners.
+- Crop/rotate reference lines now stay independent when moving or resizing the crop rectangle.
+
+## [0.3.4] - 2026-03-28
 
 ### Fixed
 - New cultivations now save correctly without triggering a `NOT NULL constraint failed: garden_nodes.node_type` error during the initial flush.

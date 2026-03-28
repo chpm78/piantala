@@ -449,6 +449,7 @@ function initOverlayEditors() {
     const pointPanel = container.parentElement?.querySelector("[data-point-positions-panel]");
     const pointList = pointPanel?.querySelector("[data-point-positions-list]");
     const handles = Array.from(container.querySelectorAll("[data-overlay-editor-handle]"));
+    const polygonElement = container.querySelector("[data-overlay-editor-polygon]");
     let detachActiveDragListeners = null;
 
     const pointFromPointerEvent = (event) => {
@@ -553,6 +554,41 @@ function initOverlayEditors() {
         event.preventDefault();
         event.stopPropagation();
       });
+    });
+
+    polygonElement?.addEventListener("pointerdown", (event) => {
+      if ((shapeInput?.value || "point") !== "area") {
+        return;
+      }
+      const points = readOverlayPolygon(container);
+      if (points.length !== 4) {
+        return;
+      }
+      const startPoint = pointFromPointerEvent(event);
+      if (!startPoint) {
+        return;
+      }
+      const originalPoints = points.map((point) => ({ ...point }));
+      if (typeof polygonElement.setPointerCapture === "function") {
+        polygonElement.setPointerCapture(event.pointerId);
+      }
+      startDrag(event.pointerId, (point) => {
+        const deltaX = point.x - startPoint.x;
+        const deltaY = point.y - startPoint.y;
+        const xs = originalPoints.map((item) => item.x);
+        const ys = originalPoints.map((item) => item.y);
+        const boundedDeltaX = clampPercent(deltaX, -Math.min(...xs), 100 - Math.max(...xs));
+        const boundedDeltaY = clampPercent(deltaY, -Math.min(...ys), 100 - Math.max(...ys));
+        writeOverlayPolygon(
+          originalPoints.map((item) => ({
+            x: item.x + boundedDeltaX,
+            y: item.y + boundedDeltaY,
+          }))
+        );
+        syncOverlayEditorPreview(container);
+      });
+      event.preventDefault();
+      event.stopPropagation();
     });
 
     container.addEventListener("pointerdown", (event) => {
@@ -1228,6 +1264,7 @@ function initNodeDetailFilters() {
     const isDead = element.dataset.isDead === "true";
     const lifeCycle = element.dataset.lifeCycle || "";
     const cultivationYear = element.dataset.cultivationYear || "";
+    const plantingYear = element.dataset.plantingYear || "";
     const showDead = showDeadInput?.checked ?? false;
     const selectedYear = yearSelect?.value || "";
 
@@ -1236,6 +1273,15 @@ function initNodeDetailFilters() {
     }
 
     if (lifeCycle === "annual" && selectedYear && cultivationYear !== selectedYear) {
+      return false;
+    }
+
+    if (
+      lifeCycle === "perennial" &&
+      selectedYear &&
+      plantingYear &&
+      Number.parseInt(plantingYear, 10) > Number.parseInt(selectedYear, 10)
+    ) {
       return false;
     }
 
@@ -1917,8 +1963,8 @@ function initPhotoImportEditor() {
     };
 
     const clampLinePoint = (point) => ({
-      x: clamp(point.x, state.rect.x, state.rect.x + state.rect.width),
-      y: clamp(point.y, state.rect.y, state.rect.y + state.rect.height),
+      x: clamp(point.x, 0, 100),
+      y: clamp(point.y, 0, 100),
     });
 
     const render = () => {
@@ -2337,8 +2383,6 @@ function initPhotoImportEditor() {
       const deltaY = point.y - start.y;
       state.rect.x = clamp(state.rect.x + deltaX, 0, 100 - state.rect.width);
       state.rect.y = clamp(state.rect.y + deltaY, 0, 100 - state.rect.height);
-      state.lineStart = { x: state.lineStart.x + deltaX, y: state.lineStart.y + deltaY };
-      state.lineEnd = { x: state.lineEnd.x + deltaX, y: state.lineEnd.y + deltaY };
       state.dragStart = point;
     } else if (state.activeDrag.startsWith("resize-")) {
       const handleKey = state.activeDrag.replace("resize-", "");
@@ -2359,7 +2403,6 @@ function initPhotoImportEditor() {
       if (handleKey.includes("bottom")) {
         state.rect.height = clamp(point.y - state.rect.y, 6, 100 - state.rect.y);
       }
-      syncReferenceLineToCrop();
     } else if (state.activeDrag === "line-start") {
       state.lineStart = clampLinePoint(point);
     } else if (state.activeDrag === "line-end") {

@@ -430,6 +430,37 @@ def _annual_direct_children(node: GardenNode) -> list[GardenNode]:
     return [child for child in node.children if child.life_cycle == "annual"]
 
 
+def _available_cultivation_years(node: GardenNode) -> list[int]:
+    """Return all year options that should appear in the section year selector.
+
+    Parameters:
+        node: Section or bed whose direct children contribute visible cultivation years.
+    """
+    current_year = datetime.now(UTC).year
+    years: set[int] = set()
+
+    for child in node.children:
+        if child.life_cycle == "annual":
+            if child.effective_cultivation_year is not None:
+                years.add(int(child.effective_cultivation_year))
+            continue
+
+        if child.life_cycle != "perennial":
+            continue
+
+        start_year = child.planting_date.year if child.planting_date is not None else None
+        if start_year is None:
+            continue
+
+        end_year = child.death_year or current_year
+        if end_year < start_year:
+            end_year = start_year
+
+        years.update(range(start_year, end_year + 1))
+
+    return sorted(years, reverse=True)
+
+
 def _clone_scope_candidates(
     node: GardenNode,
     *,
@@ -828,13 +859,9 @@ def node_detail(node_id: int):
         display_mode = "both"
     else:
         display_mode = "cultivations"
-    annual_children = _annual_direct_children(node)
     raw_year = request.args.get("year")
     selected_year = request.args.get("year", type=int) if raw_year not in {None, ""} else None
-    available_cultivation_years = sorted(
-        {child.effective_cultivation_year for child in annual_children if child.effective_cultivation_year is not None},
-        reverse=True,
-    )
+    available_cultivation_years = _available_cultivation_years(node)
     if raw_year is None and available_cultivation_years:
         selected_year = available_cultivation_years[0]
     ordered_photos = sorted(
@@ -857,6 +884,7 @@ def node_detail(node_id: int):
     display_image_path = node.display_image
     navigation_image_path = node.map_view_image
     visible_children = list(node.children)
+    has_dead_children = any(child.is_dead for child in visible_children)
     image_children = [
         child
         for child in node.children
@@ -908,6 +936,7 @@ def node_detail(node_id: int):
         "node_detail.html",
         node=node,
         visible_children=visible_children,
+        has_dead_children=has_dead_children,
         show_dead_children=show_dead_children,
         selected_year=selected_year,
         available_cultivation_years=available_cultivation_years,
