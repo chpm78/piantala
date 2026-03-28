@@ -2403,6 +2403,375 @@ function initPhotoImportEditor() {
 }
 
 /**
+ * Initialize irrigation-zone internal rectangle editors.
+ */
+function initIrrigationSubzoneEditors() {
+  document.querySelectorAll("[data-irrigation-subzone-editor='true']").forEach((container) => {
+    if (container.dataset.irrigationSubzonesReady === "true") {
+      return;
+    }
+    container.dataset.irrigationSubzonesReady = "true";
+
+    const form = container.closest("form");
+    const stateInput = document.getElementById(container.dataset.stateInputId || "");
+    const addButton = container.querySelector("[data-irrigation-subzone-add='true']");
+    const list = container.querySelector("[data-irrigation-subzone-list='true']");
+    const emptyLabel = container.querySelector("[data-irrigation-subzone-empty='true']");
+    const layer = form?.querySelector("[data-irrigation-subzones-layer='true']");
+    const image = form?.querySelector("[data-overlay-editor='true'] img");
+    const overlayContainer = form?.querySelector("[data-overlay-editor='true']");
+
+    if (!form || !stateInput || !addButton || !list || !emptyLabel || !layer || !image || !overlayContainer) {
+      return;
+    }
+
+    let polygons = [];
+    let selectedKey = "main";
+    let detachDragListeners = null;
+    const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
+    const irrigationColors = {
+      blue: "#2c75ff",
+      teal: "#1f9d8b",
+      green: "#3e8b53",
+      cyan: "#22b8cf",
+      purple: "#7b5fd6",
+      orange: "#f28c28",
+    };
+    const colorSelect = form.querySelector("select[name$='overlay_color']");
+    const currentZoneColor = () => irrigationColors[colorSelect?.value] || "#2c75ff";
+
+    const parseState = () => {
+      try {
+        const parsed = JSON.parse(stateInput.value || "[]");
+        polygons = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        polygons = [];
+      }
+    };
+
+    const normalizePolygon = (rawPolygon) => {
+      const normalizePoint = (point) => ({
+        x: clampValue(parseFloatOrDefault(point.x, 50), 0, 100),
+        y: clampValue(parseFloatOrDefault(point.y, 50), 0, 100),
+      });
+
+      if (rawPolygon && typeof rawPolygon === "object" && !Array.isArray(rawPolygon) && "x" in rawPolygon && "width" in rawPolygon) {
+        const width = clampValue(parseFloatOrDefault(rawPolygon.width, 12), 1, 100);
+        const height = clampValue(parseFloatOrDefault(rawPolygon.height, 8), 1, 100);
+        const x = clampValue(parseFloatOrDefault(rawPolygon.x, 50), width / 2, 100 - width / 2);
+        const y = clampValue(parseFloatOrDefault(rawPolygon.y, 50), height / 2, 100 - height / 2);
+        return [
+          { x: x - width / 2, y: y - height / 2 },
+          { x: x + width / 2, y: y - height / 2 },
+          { x: x + width / 2, y: y + height / 2 },
+          { x: x - width / 2, y: y + height / 2 },
+        ].map(normalizePoint);
+      }
+
+      const points = Array.isArray(rawPolygon?.points) ? rawPolygon.points : rawPolygon;
+      if (!Array.isArray(points) || points.length !== 4) {
+        return null;
+      }
+      return points.map(normalizePoint);
+    };
+
+    const writeState = () => {
+      const normalized = polygons
+        .map((polygon) => normalizePolygon(polygon))
+        .filter(Boolean)
+        .map((polygon) => ({
+          points: polygon.map((point) => ({
+            x: Number.parseFloat(formatPercent(point.x)),
+            y: Number.parseFloat(formatPercent(point.y)),
+          })),
+        }));
+      polygons = normalized.map((polygon) => polygon.points);
+      stateInput.value = JSON.stringify(normalized);
+      if (selectedKey !== "main") {
+        const selectedIndex = parseIntOrDefault(selectedKey.replace("extra-", ""), -1);
+        if (selectedIndex >= polygons.length) {
+          selectedKey = polygons.length ? `extra-${polygons.length - 1}` : "main";
+        }
+      }
+    };
+
+    const polygonBox = (polygon) => {
+      const xs = polygon.map((point) => point.x);
+      const ys = polygon.map((point) => point.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      return {
+        minX,
+        maxX,
+        minY,
+        maxY,
+        width: Math.max(maxX - minX, 0.5),
+        height: Math.max(maxY - minY, 0.5),
+      };
+    };
+
+    const polygonStyle = (polygon) => {
+      const box = polygonBox(polygon);
+      return (
+        `left: ${formatPercent(box.minX)}%; ` +
+        `top: ${formatPercent(box.minY)}%; ` +
+        `width: ${formatPercent(box.width)}%; ` +
+        `height: ${formatPercent(box.height)}%;`
+      );
+    };
+
+    const polygonSvgPoints = (polygon) => {
+      const box = polygonBox(polygon);
+      return polygon.map((point) => (
+        `${(((point.x - box.minX) / box.width) * 100).toFixed(2)},${(((point.y - box.minY) / box.height) * 100).toFixed(2)}`
+      )).join(" ");
+    };
+
+    const pointFromPointerEvent = (event) => {
+      const rect = image.getBoundingClientRect();
+      if (
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom
+      ) {
+        return null;
+      }
+      return {
+        x: ((event.clientX - rect.left) / rect.width) * 100,
+        y: ((event.clientY - rect.top) / rect.height) * 100,
+      };
+    };
+
+    const render = () => {
+      writeState();
+      layer.innerHTML = "";
+      list.innerHTML = "";
+
+      const mainPolygon = readOverlayPolygon(overlayContainer);
+      if (mainPolygon.length === 4) {
+        const mainItem = document.createElement("div");
+        mainItem.className = "point-positions-item";
+        if (selectedKey === "main") {
+          mainItem.classList.add("is-selected");
+        }
+        mainItem.dataset.irrigationSubzoneMainSelect = "true";
+        const mainBox = polygonBox(mainPolygon);
+        const mainCenterX = mainBox.minX + (mainBox.width / 2);
+        const mainCenterY = mainBox.minY + (mainBox.height / 2);
+        mainItem.innerHTML = `<span>${container.dataset.mainLabel || "Main area"} · X ${formatPercent(mainCenterX)}%, Y ${formatPercent(mainCenterY)}%</span>`;
+        list.appendChild(mainItem);
+      }
+
+      polygons.forEach((polygon, index) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "image-hotspot-area-overlay image-irrigation-zone-overlay irrigation-subzone-editor-polygon";
+        if (selectedKey === `extra-${index}`) {
+          wrapper.classList.add("is-selected");
+        }
+        wrapper.dataset.irrigationSubzoneIndex = String(index);
+        wrapper.style.cssText = `${polygonStyle(polygon)} --irrigation-zone-color: ${currentZoneColor()};`;
+        wrapper.innerHTML = `
+          <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <polygon class="image-irrigation-zone-polygon" points="${polygonSvgPoints(polygon)}"></polygon>
+          </svg>
+        `;
+        layer.appendChild(wrapper);
+
+        if (selectedKey === `extra-${index}`) {
+          polygon.forEach((point, pointIndex) => {
+            const handle = document.createElement("button");
+            handle.type = "button";
+            handle.className = "overlay-editor-handle irrigation-subzone-polygon-handle";
+            handle.dataset.irrigationSubzoneHandle = String(index);
+            handle.dataset.irrigationSubzonePointIndex = String(pointIndex);
+            handle.style.left = `${formatPercent(point.x)}%`;
+            handle.style.top = `${formatPercent(point.y)}%`;
+            handle.setAttribute("aria-label", `Area corner ${pointIndex + 1}`);
+            layer.appendChild(handle);
+          });
+        }
+
+        const item = document.createElement("div");
+        item.className = "point-positions-item";
+        if (selectedKey === `extra-${index}`) {
+          item.classList.add("is-selected");
+        }
+        item.dataset.irrigationSubzoneSelect = String(index);
+        const box = polygonBox(polygon);
+        const centerX = box.minX + (box.width / 2);
+        const centerY = box.minY + (box.height / 2);
+        item.innerHTML = `<span>${container.dataset.rectangleLabel || "Area"} ${index + 1} · X ${formatPercent(centerX)}%, Y ${formatPercent(centerY)}%</span>`;
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "button button-secondary button-small";
+        removeButton.textContent = container.dataset.removeLabel || "Delete";
+        removeButton.dataset.irrigationSubzoneRemove = String(index);
+        item.appendChild(removeButton);
+        list.appendChild(item);
+      });
+
+      emptyLabel.hidden = polygons.length > 0;
+    };
+
+    const defaultPolygon = () => {
+      const width = 14;
+      const height = 10;
+      return normalizePolygon({
+        x: 50,
+        y: 50,
+        width,
+        height,
+      });
+    };
+
+    const startDrag = (pointerId, onMove) => {
+      if (detachDragListeners) {
+        detachDragListeners();
+      }
+
+      const handlePointerMove = (moveEvent) => {
+        if (moveEvent.pointerId !== pointerId) {
+          return;
+        }
+        const point = pointFromPointerEvent(moveEvent);
+        if (!point) {
+          return;
+        }
+        onMove(point);
+      };
+
+      const stopDrag = (endEvent) => {
+        if (endEvent.pointerId !== pointerId) {
+          return;
+        }
+        if (detachDragListeners) {
+          detachDragListeners();
+        }
+      };
+
+      detachDragListeners = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", stopDrag);
+        window.removeEventListener("pointercancel", stopDrag);
+        detachDragListeners = null;
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", stopDrag);
+      window.addEventListener("pointercancel", stopDrag);
+    };
+
+    addButton.addEventListener("click", () => {
+      polygons.push(defaultPolygon());
+      selectedKey = `extra-${polygons.length - 1}`;
+      render();
+    });
+
+    list.addEventListener("click", (event) => {
+      const removeButton = event.target.closest("[data-irrigation-subzone-remove]");
+      if (removeButton) {
+        const removeIndex = parseIntOrDefault(removeButton.dataset.irrigationSubzoneRemove, -1);
+        if (removeIndex >= 0) {
+          polygons.splice(removeIndex, 1);
+          if (selectedKey === `extra-${removeIndex}`) {
+            selectedKey = polygons.length ? `extra-${Math.min(removeIndex, polygons.length - 1)}` : "main";
+          }
+          render();
+        }
+        return;
+      }
+
+      const mainItem = event.target.closest("[data-irrigation-subzone-main-select]");
+      if (mainItem) {
+        selectedKey = "main";
+        render();
+        return;
+      }
+
+      const item = event.target.closest("[data-irrigation-subzone-select]");
+      if (item) {
+        selectedKey = `extra-${parseIntOrDefault(item.dataset.irrigationSubzoneSelect, -1)}`;
+        render();
+      }
+    });
+
+    layer.addEventListener("pointerdown", (event) => {
+      const handle = event.target.closest("[data-irrigation-subzone-handle]");
+      if (handle) {
+        const polygonIndex = parseIntOrDefault(handle.dataset.irrigationSubzoneHandle, -1);
+        const pointIndex = parseIntOrDefault(handle.dataset.irrigationSubzonePointIndex, -1);
+        const polygon = polygons[polygonIndex];
+        if (!polygon || !polygon[pointIndex]) {
+          return;
+        }
+        selectedKey = `extra-${polygonIndex}`;
+        startDrag(event.pointerId, (point) => {
+          const updated = polygon.map((item) => ({ ...item }));
+          updated[pointIndex] = {
+            x: clampValue(point.x, 0, 100),
+            y: clampValue(point.y, 0, 100),
+          };
+          polygons[polygonIndex] = normalizePolygon(updated);
+          render();
+        });
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      const polygonButton = event.target.closest("[data-irrigation-subzone-index]");
+      if (!polygonButton) {
+        return;
+      }
+      const index = parseIntOrDefault(polygonButton.dataset.irrigationSubzoneIndex, -1);
+      const polygon = polygons[index];
+      if (!polygon) {
+        return;
+      }
+      const startPoint = pointFromPointerEvent(event);
+      if (!startPoint) {
+        return;
+      }
+      selectedKey = `extra-${index}`;
+      render();
+      const originalPolygon = polygon.map((point) => ({ ...point }));
+      startDrag(event.pointerId, (point) => {
+        const deltaX = point.x - startPoint.x;
+        const deltaY = point.y - startPoint.y;
+        const xs = originalPolygon.map((item) => item.x);
+        const ys = originalPolygon.map((item) => item.y);
+        const boundedDeltaX = clampValue(deltaX, -Math.min(...xs), 100 - Math.max(...xs));
+        const boundedDeltaY = clampValue(deltaY, -Math.min(...ys), 100 - Math.max(...ys));
+        polygons[index] = normalizePolygon(
+          originalPolygon.map((item) => ({
+            x: item.x + boundedDeltaX,
+            y: item.y + boundedDeltaY,
+          }))
+        );
+        render();
+      });
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    overlayContainer.addEventListener("click", () => {
+      render();
+    });
+    overlayContainer.addEventListener("pointerup", () => {
+      render();
+    });
+
+    parseState();
+    polygons = polygons.map((polygon) => normalizePolygon(polygon)).filter(Boolean);
+    colorSelect?.addEventListener("change", render);
+    render();
+  });
+}
+
+/**
  * Parse a floating-point value with a fallback.
  *
  * @param {string|number|undefined|null} value Value to parse.
@@ -2657,6 +3026,7 @@ window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   initOverlayEditors();
   initCultivationPositionManagers();
   initPhotoImportEditor();
+  initIrrigationSubzoneEditors();
   initSearchableSelects();
   initNodeDetailFilters();
   initEntityHistoryPanels();
@@ -2676,6 +3046,7 @@ syncCultivationYearFromPlantingDate();
 initOverlayEditors();
 initCultivationPositionManagers();
 initPhotoImportEditor();
+initIrrigationSubzoneEditors();
 initSearchableSelects();
 initNodeDetailFilters();
 initEntityHistoryPanels();

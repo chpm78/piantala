@@ -743,6 +743,7 @@ class IrrigationZoneForm(FlaskForm):
         places=2,
         validators=[Optional(), NumberRange(min=0, max=100)],
     )
+    subzone_rectangles_json = HiddenField("Internal rectangles")
     submit = SubmitField("Save irrigation zone")
 
 

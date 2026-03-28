@@ -56,61 +56,10 @@
       {% endif %}
     </div>
 
-    {% if available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3] %}
-      <section class="panel">
-        <form method="get" class="inline-toggle" data-node-filters="true">
-          {% if selected_source_section_id %}
-            <input type="hidden" name="clone_section_id" value="{{ selected_source_section_id }}">
-          {% endif %}
-          {% if clone_year_range %}
-            <input type="hidden" name="clone_year_range" value="{{ clone_year_range }}">
-          {% endif %}
-          <input type="hidden" name="ha_range" value="{{ ha_history_range }}">
-          {% if available_cultivation_years %}
-            <label>
-              <span>{{ tr("node.cultivation_year_view") }}</span>
-              <select name="year" class="input" data-node-filter-year="true">
-                <option value="" {% if selected_year is none %}selected{% endif %}>{{ tr("node.all_years") }}</option>
-                {% for year_value in available_cultivation_years %}
-                  <option value="{{ year_value }}" {% if selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
-                {% endfor %}
-              </select>
-            </label>
-          {% endif %}
-          <label class="inline-check">
-            <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} data-node-filter-dead="true">
-            <span>{{ tr("node.show_dead_plants") }}</span>
-          </label>
-          <label>
-            <span>{{ tr("node.overlay_display_mode") }}</span>
-            <select name="display" class="input" data-node-filter-display="true">
-              <option value="irrigation" {% if display_mode == "irrigation" %}selected{% endif %}>{{ tr("node.display_irrigation_only") }}</option>
-              <option value="cultivations" {% if display_mode == "cultivations" %}selected{% endif %}>{{ tr("node.display_cultivations_only") }}</option>
-              <option value="both" {% if display_mode == "both" %}selected{% endif %}>{{ tr("node.display_cultivations_and_irrigation") }}</option>
-            </select>
-          </label>
-        </form>
-      </section>
-    {% endif %}
-
     {% set show_display_panel = display_image_path %}
 
     {% if show_display_panel %}
       <div class="inline-map-help">
-        <div class="panel-header">
-          <div>
-            <h2>{{ tr("node.display_view") }}</h2>
-            <p>{{ tr("node.display_view_text") }}</p>
-          </div>
-          {% if prospect_photo %}
-            <div class="timeline-current-meta">
-              <strong>{{ prospect_photo.taken_at.strftime("%d %b %Y") }}</strong>
-              {% if prospect_photo.caption %}
-                <span>{{ prospect_photo.caption }}</span>
-              {% endif %}
-            </div>
-          {% endif %}
-        </div>
         <div class="garden-map image-overlay">
           <div class="image-stage">
             <img
@@ -125,20 +74,42 @@
 
     {% if navigation_image_path %}
       <div class="inline-map-help">
-        <div class="panel-header">
-          <div>
-            <h2>{{ tr("node.visual_navigation") }}</h2>
-            <p>{{ tr("node.hotspots_help") }}</p>
-          </div>
-          {% if map_photo %}
-            <div class="timeline-current-meta">
-              <strong>{{ map_photo.taken_at.strftime("%d %b %Y") }}</strong>
-              {% if map_photo.caption %}
-                <span>{{ map_photo.caption }}</span>
+        {% if available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3] %}
+          <section class="panel">
+            <form method="get" class="inline-toggle" data-node-filters="true">
+              {% if selected_source_section_id %}
+                <input type="hidden" name="clone_section_id" value="{{ selected_source_section_id }}">
               {% endif %}
-            </div>
-          {% endif %}
-        </div>
+              {% if clone_year_range %}
+                <input type="hidden" name="clone_year_range" value="{{ clone_year_range }}">
+              {% endif %}
+              <input type="hidden" name="ha_range" value="{{ ha_history_range }}">
+              {% if available_cultivation_years %}
+                <label>
+                  <span>{{ tr("node.cultivation_year_view") }}</span>
+                  <select name="year" class="input" data-node-filter-year="true">
+                    <option value="" {% if selected_year is none %}selected{% endif %}>{{ tr("node.all_years") }}</option>
+                    {% for year_value in available_cultivation_years %}
+                      <option value="{{ year_value }}" {% if selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+              {% endif %}
+              <label class="inline-check">
+                <input type="checkbox" name="show_dead" value="1" {% if show_dead_children %}checked{% endif %} data-node-filter-dead="true">
+                <span>{{ tr("node.show_dead_plants") }}</span>
+              </label>
+              <label>
+                <span>{{ tr("node.overlay_display_mode") }}</span>
+                <select name="display" class="input" data-node-filter-display="true">
+                  <option value="irrigation" {% if display_mode == "irrigation" %}selected{% endif %}>{{ tr("node.display_irrigation_only") }}</option>
+                  <option value="cultivations" {% if display_mode == "cultivations" %}selected{% endif %}>{{ tr("node.display_cultivations_only") }}</option>
+                  <option value="both" {% if display_mode == "both" %}selected{% endif %}>{{ tr("node.display_cultivations_and_irrigation") }}</option>
+                </select>
+              </label>
+            </form>
+          </section>
+        {% endif %}
         <div class="garden-map image-overlay">
           <div class="image-stage">
             <img
@@ -251,6 +222,43 @@
                 </svg>
                 <span class="image-irrigation-zone-icon mdi mdi-sprinkler" aria-hidden="true" style="color: {{ zone.overlay_color_value }};"></span>
               </div>
+              {% for polygon in zone.subzone_overlay_polygons %}
+                <div
+                  class="image-hotspot-area-overlay image-irrigation-zone-overlay image-irrigation-zone-subpolygon"
+                  style="{{ polygon.style }}"
+                  data-title="{{ zone_overlay_title }}"
+                  aria-label="{{ zone_overlay_title }}"
+                  data-irrigation-zone="true"
+                  data-overlay-item="true"
+                  {% if display_mode == 'cultivations' %}hidden{% endif %}
+                >
+                  <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                      <pattern id="irrigation-pattern-{{ zone.id }}-{{ loop.index0 }}" patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(35)">
+                        {% if zone.texture_pattern_key == "diagonal" %}
+                          <line x1="0" y1="14" x2="14" y2="0" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.45" stroke-width="3"></line>
+                        {% elif zone.texture_pattern_key == "crosshatch" %}
+                          <line x1="0" y1="14" x2="14" y2="0" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                          <line x1="0" y1="0" x2="14" y2="14" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                        {% elif zone.texture_pattern_key == "dots" %}
+                          <circle cx="3" cy="3" r="1.8" fill="{{ zone.overlay_color_value }}" fill-opacity="0.45"></circle>
+                          <circle cx="10.5" cy="10.5" r="1.8" fill="{{ zone.overlay_color_value }}" fill-opacity="0.45"></circle>
+                        {% elif zone.texture_pattern_key == "grid" %}
+                          <line x1="0" y1="0" x2="0" y2="14" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                          <line x1="7" y1="0" x2="7" y2="14" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                          <line x1="0" y1="0" x2="14" y2="0" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                          <line x1="0" y1="7" x2="14" y2="7" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.36" stroke-width="2"></line>
+                        {% elif zone.texture_pattern_key == "horizontal" %}
+                          <line x1="0" y1="3" x2="14" y2="3" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                          <line x1="0" y1="10" x2="14" y2="10" stroke="{{ zone.overlay_color_value }}" stroke-opacity="0.4" stroke-width="2.5"></line>
+                        {% endif %}
+                      </pattern>
+                    </defs>
+                    <polygon class="image-irrigation-zone-polygon" points="{{ polygon.svg_points }}" fill="{{ zone.overlay_color_value }}" fill-opacity="0.14" stroke="{{ zone.overlay_color_value }}"></polygon>
+                    <polygon class="image-irrigation-zone-pattern" points="{{ polygon.svg_points }}" fill="url(#irrigation-pattern-{{ zone.id }}-{{ loop.index0 }})"></polygon>
+                  </svg>
+                </div>
+              {% endfor %}
             {% endfor %}
           </div>
         </div>

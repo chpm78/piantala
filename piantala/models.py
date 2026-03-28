@@ -852,6 +852,7 @@ class NodeIrrigationZone(AuditMixin, db.Model):
         nullable=False,
         default=DEFAULT_IRRIGATION_ZONE_TEXTURE,
     )
+    subzone_rectangles_json = db.Column(db.Text, nullable=True)
     area_corner_1_x = db.Column(db.Float, nullable=True)
     area_corner_1_y = db.Column(db.Float, nullable=True)
     area_corner_2_x = db.Column(db.Float, nullable=True)
@@ -893,6 +894,71 @@ class NodeIrrigationZone(AuditMixin, db.Model):
             if self.texture_pattern in IRRIGATION_ZONE_TEXTURES
             else DEFAULT_IRRIGATION_ZONE_TEXTURE
         )
+
+    @property
+    def subzone_polygons(self) -> list[list[tuple[float, float]]]:
+        """Return additional irrigation polygons stored for this zone.
+
+        Older rectangle-based payloads are converted on read into equivalent
+        four-corner polygons so existing data keeps working.
+        """
+        try:
+            raw_polygons = json.loads(self.subzone_rectangles_json or "[]")
+        except (TypeError, ValueError):
+            raw_polygons = []
+
+        polygons: list[list[tuple[float, float]]] = []
+        if not isinstance(raw_polygons, list):
+            return polygons
+
+        for item in raw_polygons:
+            if isinstance(item, dict) and {"x", "y", "width", "height"}.issubset(item.keys()):
+                try:
+                    width = _clamp_percent(float(item.get("width", 0)), minimum=1.0)
+                    height = _clamp_percent(float(item.get("height", 0)), minimum=1.0)
+                    x = _clamp_percent(float(item.get("x", 50.0)))
+                    y = _clamp_percent(float(item.get("y", 50.0)))
+                except (TypeError, ValueError):
+                    continue
+                half_width = width / 2
+                half_height = height / 2
+                polygons.append(
+                    [
+                        (_clamp_percent(x - half_width), _clamp_percent(y - half_height)),
+                        (_clamp_percent(x + half_width), _clamp_percent(y - half_height)),
+                        (_clamp_percent(x + half_width), _clamp_percent(y + half_height)),
+                        (_clamp_percent(x - half_width), _clamp_percent(y + half_height)),
+                    ]
+                )
+                continue
+
+            raw_points = None
+            if isinstance(item, dict):
+                raw_points = item.get("points")
+            elif isinstance(item, list):
+                raw_points = item
+
+            if not isinstance(raw_points, list) or len(raw_points) != 4:
+                continue
+
+            polygon: list[tuple[float, float]] = []
+            valid = True
+            for point in raw_points:
+                if isinstance(point, dict):
+                    raw_x, raw_y = point.get("x"), point.get("y")
+                elif isinstance(point, (list, tuple)) and len(point) == 2:
+                    raw_x, raw_y = point
+                else:
+                    valid = False
+                    break
+                try:
+                    polygon.append((_clamp_percent(float(raw_x)), _clamp_percent(float(raw_y))))
+                except (TypeError, ValueError):
+                    valid = False
+                    break
+            if valid and len(polygon) == 4:
+                polygons.append(polygon)
+        return polygons
 
     @property
     def area_polygon_points(self) -> list[tuple[float, float]]:
@@ -963,6 +1029,38 @@ class NodeIrrigationZone(AuditMixin, db.Model):
             f"{((x - min_x) / width) * 100:.2f},{((y - min_y) / height) * 100:.2f}"
             for x, y in points
         )
+
+    @property
+    def subzone_overlay_polygons(self) -> list[dict[str, str]]:
+        """Return additional irrigation polygons for wrapper and full-image rendering."""
+        overlays: list[dict[str, str]] = []
+        for polygon in self.subzone_polygons:
+            xs = [x for x, _y in polygon]
+            ys = [y for _x, y in polygon]
+            min_x = _clamp_percent(min(xs))
+            max_x = _clamp_percent(max(xs))
+            min_y = _clamp_percent(min(ys))
+            max_y = _clamp_percent(max(ys))
+            width = max(max_x - min_x, 0.5)
+            height = max(max_y - min_y, 0.5)
+            wrapper_points = " ".join(
+                f"{((x - min_x) / width) * 100:.2f},{((y - min_y) / height) * 100:.2f}"
+                for x, y in polygon
+            )
+            absolute_points = " ".join(f"{x:.2f},{y:.2f}" for x, y in polygon)
+            overlays.append(
+                {
+                    "style": (
+                        f"left: {min_x:.2f}%; "
+                        f"top: {min_y:.2f}%; "
+                        f"width: {width:.2f}%; "
+                        f"height: {height:.2f}%;"
+                    ),
+                    "svg_points": wrapper_points,
+                    "absolute_svg_points": absolute_points,
+                }
+            )
+        return overlays
 
 
 class HomeAssistantSettings(AuditMixin, db.Model):
@@ -1838,6 +1936,10 @@ def sync_schema() -> None:
             "texture_pattern": (
                 "ALTER TABLE node_irrigation_zones "
                 "ADD COLUMN texture_pattern VARCHAR(32) NOT NULL DEFAULT 'diagonal'"
+            ),
+            "subzone_rectangles_json": (
+                "ALTER TABLE node_irrigation_zones "
+                "ADD COLUMN subzone_rectangles_json TEXT"
             ),
         },
     }

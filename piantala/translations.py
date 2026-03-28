@@ -424,6 +424,30 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
         "en": "Click once to create the irrigation rectangle, then drag the corners.",
         "it": "Clicca una volta per creare il rettangolo di irrigazione, poi trascina gli angoli.",
     },
+    "node.irrigation_subzones": {
+        "en": "Additional irrigation areas",
+        "it": "Aree irrigazione aggiuntive",
+    },
+    "node.irrigation_subzones_help": {
+        "en": "Add one or more additional 4-corner areas for this irrigation zone. Drag an area to move it and drag its corners to reshape it.",
+        "it": "Aggiungi una o piu' aree aggiuntive a 4 punti per questa zona di irrigazione. Trascina un'area per spostarla e trascina i suoi angoli per modificarne la forma.",
+    },
+    "node.add_irrigation_subzone": {
+        "en": "Add area",
+        "it": "Aggiungi area",
+    },
+    "node.irrigation_subzones_empty": {
+        "en": "No additional irrigation areas yet.",
+        "it": "Nessuna area irrigazione aggiuntiva definita.",
+    },
+    "node.irrigation_subzone_item": {
+        "en": "Area",
+        "it": "Area",
+    },
+    "node.irrigation_main_area": {
+        "en": "Main area",
+        "it": "Area principale",
+    },
     "node.zone_name": {"en": "Zone name", "it": "Nome zona"},
     "node.entity_search": {"en": "Search entity", "it": "Cerca entita'"},
     "node.entity_search_placeholder": {

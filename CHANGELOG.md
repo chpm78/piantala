@@ -4,7 +4,22 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
-## [0.3.1] - Unreleased
+## [0.3.2] - Unreleased
+
+### Added
+- Irrigation zones can now define additional four-corner map areas while reusing the same texture and color styling as the main zone.
+- Storage administration now supports folder-based browsing, thumbnail/list views, clickable file paths, and richer image inventory details.
+
+### Changed
+- Edit screens now rely on breadcrumb-style navigation paths instead of the old generic back action.
+- Section map presentation now keeps the prospect view clean, moves map filters directly above the map, and keeps irrigation overlays visually consistent.
+
+### Fixed
+- Edit-node breadcrumbs now resolve the correct section path instead of duplicating the parent area.
+- Additional irrigation areas now save and render correctly, including texture overlays and visibility alongside the main irrigation zone.
+- The irrigation-zone and cultivation-position editors now behave more reliably when selecting, dragging, and removing existing overlays.
+
+## [0.3.1] - 2026-03-28
 
 ### Added
 - Admin runtime visibility now includes an Environment page with server, Python, pip, package, Docker, and disk information.

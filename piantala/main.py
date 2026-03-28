@@ -229,6 +229,47 @@ def _polygon_from_irrigation_form(form: IrrigationZoneForm) -> list[tuple[float,
     )
 
 
+def _subzone_polygons_from_irrigation_form(form: IrrigationZoneForm) -> list[list[dict[str, float]]]:
+    """Read additional irrigation polygons from the form payload.
+
+    Parameters:
+        form: Submitted irrigation zone form containing the polygons JSON field.
+    """
+    try:
+        raw_polygons = json.loads(form.subzone_rectangles_json.data or "[]")
+    except (TypeError, ValueError):
+        raw_polygons = []
+
+    polygons: list[list[dict[str, float]]] = []
+    if not isinstance(raw_polygons, list):
+        return polygons
+
+    for raw_polygon in raw_polygons:
+        points = raw_polygon.get("points") if isinstance(raw_polygon, dict) else raw_polygon
+        if not isinstance(points, list) or len(points) != 4:
+            continue
+
+        polygon: list[dict[str, float]] = []
+        valid = True
+        for point in points:
+            if not isinstance(point, dict):
+                valid = False
+                break
+            try:
+                polygon.append(
+                    {
+                        "x": _clamp_percent(float(point.get("x"))),
+                        "y": _clamp_percent(float(point.get("y"))),
+                    }
+                )
+            except (TypeError, ValueError):
+                valid = False
+                break
+        if valid:
+            polygons.append(polygon)
+    return polygons
+
+
 def _polygon_centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
     """Return the center point of a polygon.
 
@@ -2011,6 +2052,9 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
         form.name.data = zone.name
         form.overlay_color.data = zone.overlay_color_key
         form.texture_pattern.data = zone.texture_pattern_key
+        form.subzone_rectangles_json.data = json.dumps(
+            [{"points": [{"x": x, "y": y} for x, y in polygon]} for polygon in zone.subzone_polygons]
+        )
         (
             form.area_corner_1_x.data,
             form.area_corner_1_y.data,
@@ -2042,6 +2086,7 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
             return redirect(url_for("main.edit_node", node_id=node.id))
 
         polygon_points = _polygon_from_irrigation_form(form)
+        subzone_polygons = _subzone_polygons_from_irrigation_form(form)
         if not polygon_points:
             flash("Draw the irrigation zone directly on the image before saving.", "danger")
             return render_template(
@@ -2070,6 +2115,7 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
         zone.map_x, zone.map_y = _polygon_centroid(polygon_points)
         zone.overlay_color = form.overlay_color.data or DEFAULT_IRRIGATION_ZONE_COLOR
         zone.texture_pattern = form.texture_pattern.data or DEFAULT_IRRIGATION_ZONE_TEXTURE
+        zone.subzone_rectangles_json = json.dumps(subzone_polygons)
         (
             zone.area_corner_1_x,
             zone.area_corner_1_y,
@@ -2173,6 +2219,13 @@ def _irrigation_zone_form(zone: NodeIrrigationZone | None = None) -> IrrigationZ
         )
         form.texture_pattern.data = (
             zone.texture_pattern_key if zone is not None else DEFAULT_IRRIGATION_ZONE_TEXTURE
+        )
+        form.subzone_rectangles_json.data = (
+            json.dumps(
+                [{"points": [{"x": x, "y": y} for x, y in polygon]} for polygon in zone.subzone_polygons]
+            )
+            if zone is not None
+            else "[]"
         )
     return form
 
