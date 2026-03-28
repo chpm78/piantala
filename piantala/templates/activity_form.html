@@ -70,6 +70,10 @@
 
     <form method="post" action="{{ url_for('main.delete_activity', activity_id=activity.id) }}" class="inline-delete">
       {{ delete_form.hidden_tag() }}
+      <label class="inline-check">
+        {{ delete_form.remove_files(id="delete-activity-form-remove-files") }}
+        <span>{{ tr("common.remove_uploaded_files") }}</span>
+      </label>
       <button type="submit" class="button button-danger" data-confirm="Delete this activity?">{{ tr("common.delete") }}</button>
     </form>
   </section>

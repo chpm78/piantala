@@ -190,6 +190,11 @@ class GardenSettings(AuditMixin, db.Model):
     font_family = db.Column(db.String(32), nullable=False, default="classic_serif")
     default_locale = db.Column(db.String(8), nullable=False, default=DEFAULT_LOCALE)
     map_image_path = db.Column(db.String(255), nullable=True)
+    homepage_map_max_dimension = db.Column(db.Integer, nullable=False, default=2560)
+    node_display_max_dimension = db.Column(db.Integer, nullable=False, default=2200)
+    node_map_max_dimension = db.Column(db.Integer, nullable=False, default=2560)
+    node_photo_max_dimension = db.Column(db.Integer, nullable=False, default=2200)
+    activity_image_max_dimension = db.Column(db.Integer, nullable=False, default=1800)
     google_maps_center_lat = db.Column(db.Float, nullable=True)
     google_maps_center_lng = db.Column(db.Float, nullable=True)
     google_maps_zoom = db.Column(db.Integer, nullable=False, default=19)
@@ -244,6 +249,7 @@ class GardenNode(AuditMixin, db.Model):
     planting_date = db.Column(db.Date, nullable=True)
     death_year = db.Column(db.Integer, nullable=True)
     hero_image_path = db.Column(db.String(255), nullable=True)
+    map_image_path = db.Column(db.String(255), nullable=True)
     image_display_mode = db.Column(db.String(16), nullable=False, default="contain")
     image_focus_x = db.Column(db.Float, nullable=False, default=50.0)
     image_focus_y = db.Column(db.Float, nullable=False, default=50.0)
@@ -359,6 +365,13 @@ class GardenNode(AuditMixin, db.Model):
         if self.latest_photo:
             return self.latest_photo.image_path
         return None
+
+    @property
+    def map_view_image(self) -> str | None:
+        """Return the image path used for overlays and top-view navigation."""
+        if self.map_image_path:
+            return self.map_image_path
+        return self.display_image
 
     @property
     def image_display_style(self) -> str:
@@ -1370,6 +1383,7 @@ def _sync_garden_node_uniqueness(connection) -> None:
                     " planting_date DATE,"
                     " death_year INTEGER,"
                     " hero_image_path VARCHAR(255),"
+                    " map_image_path VARCHAR(255),"
                     " image_display_mode VARCHAR(16) NOT NULL DEFAULT 'contain',"
                     " image_focus_x FLOAT NOT NULL DEFAULT 50.0,"
                     " image_focus_y FLOAT NOT NULL DEFAULT 50.0,"
@@ -1409,6 +1423,7 @@ def _sync_garden_node_uniqueness(connection) -> None:
                     "INSERT INTO garden_nodes_new ("
                     " id, parent_id, cloned_from_node_id, level, node_type, title, summary, notes, quantity,"
                     " life_cycle, cultivation_year, planting_date, death_year, hero_image_path,"
+                    " map_image_path,"
                     " image_display_mode, image_focus_x, image_focus_y, map_x, map_y, overlay_shape,"
                     " overlay_width, overlay_height, additional_positions_json,"
                     " area_corner_1_x, area_corner_1_y, area_corner_2_x, area_corner_2_y,"
@@ -1419,6 +1434,7 @@ def _sync_garden_node_uniqueness(connection) -> None:
                     "SELECT "
                     " id, parent_id, cloned_from_node_id, level, node_type, title, summary, notes, quantity,"
                     " life_cycle, cultivation_year, planting_date, death_year, hero_image_path,"
+                    " map_image_path,"
                     " image_display_mode, image_focus_x, image_focus_y, map_x, map_y, overlay_shape,"
                     " overlay_width, overlay_height, additional_positions_json,"
                     " area_corner_1_x, area_corner_1_y, area_corner_2_x, area_corner_2_y,"
@@ -1496,6 +1512,26 @@ def sync_schema() -> None:
             "default_locale": (
                 "ALTER TABLE garden_settings "
                 f"ADD COLUMN default_locale VARCHAR(8) NOT NULL DEFAULT '{DEFAULT_LOCALE}'"
+            ),
+            "homepage_map_max_dimension": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN homepage_map_max_dimension INTEGER NOT NULL DEFAULT 2560"
+            ),
+            "node_display_max_dimension": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN node_display_max_dimension INTEGER NOT NULL DEFAULT 2200"
+            ),
+            "node_map_max_dimension": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN node_map_max_dimension INTEGER NOT NULL DEFAULT 2560"
+            ),
+            "node_photo_max_dimension": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN node_photo_max_dimension INTEGER NOT NULL DEFAULT 2200"
+            ),
+            "activity_image_max_dimension": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN activity_image_max_dimension INTEGER NOT NULL DEFAULT 1800"
             ),
             "google_maps_center_lat": (
                 "ALTER TABLE garden_settings "
@@ -1610,6 +1646,10 @@ def sync_schema() -> None:
             "death_year": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN death_year INTEGER"
+            ),
+            "map_image_path": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN map_image_path VARCHAR(255)"
             ),
             "image_display_mode": (
                 "ALTER TABLE garden_nodes "

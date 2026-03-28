@@ -9,14 +9,14 @@
         <a class="text-link" href="{{ url_for('main.node_detail', node_id=crumb.id) }}">{{ crumb.title }}</a>
       {% endfor %}
       <span>/</span>
-      <span>{{ tr("node.edit_entity") }}</span>
+      <span>{{ tr("node.edit_entity") if entity else tr("node.add_entity") }}</span>
     </div>
 
     <div class="panel-header">
       <div>
         <p class="eyebrow">{{ tr("node.home_assistant") }}</p>
-        <h1>{{ tr("node.edit_entity") }}</h1>
-        <p>{{ tr("node.edit_entity_description") }}</p>
+        <h1>{{ tr("node.edit_entity") if entity else tr("node.add_entity") }}</h1>
+        <p>{{ tr("node.edit_entity_description") if entity else tr("node.entity_help") }}</p>
       </div>
     </div>
 

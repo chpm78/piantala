@@ -8,8 +8,89 @@ from sqlalchemy import inspect
 
 from .config import Config
 from .extensions import db, login_manager
-from .models import GardenSettings, Role, TranslationEntry, User, ensure_seed_data, sync_schema
+from .media import max_dimension_for_kind, optimize_image_file, relative_upload_to_fs_path
+from .models import (
+    GardenNode,
+    GardenSettings,
+    NodeActivityImage,
+    NodePhoto,
+    Role,
+    TranslationEntry,
+    User,
+    ensure_seed_data,
+    sync_schema,
+)
 from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
+
+
+def _move_upload_if_needed(upload_dir: Path, current_path: str | None, target_path: str) -> str:
+    """Move one stored upload into a new relative location when needed.
+
+    Parameters:
+        upload_dir: Absolute upload directory configured for the app.
+        current_path: Existing stored relative path, if any.
+        target_path: Desired stored relative path under `uploads/...`.
+    """
+    if not current_path or current_path == target_path:
+        return target_path
+
+    source_path = relative_upload_to_fs_path(upload_dir, current_path)
+    target_file_path = relative_upload_to_fs_path(upload_dir, target_path)
+    if not source_path.exists():
+        return current_path
+
+    target_file_path.parent.mkdir(parents=True, exist_ok=True)
+    if source_path != target_file_path:
+        source_path.replace(target_file_path)
+    return target_path
+
+
+def _organize_upload_folders(upload_dir: Path) -> int:
+    """Move stored uploads into structured folders and update DB paths.
+
+    Parameters:
+        upload_dir: Absolute upload directory configured for the app.
+    """
+    moved_count = 0
+    settings = GardenSettings.get_or_create()
+    if settings.map_image_path:
+        target_path = f"uploads/site/{Path(settings.map_image_path).name}"
+        new_path = _move_upload_if_needed(upload_dir, settings.map_image_path, target_path)
+        if new_path != settings.map_image_path:
+            settings.map_image_path = new_path
+            moved_count += 1
+
+    for node in GardenNode.query.all():
+        if node.hero_image_path:
+            target_path = f"uploads/nodes/{node.id}/{Path(node.hero_image_path).name}"
+            new_path = _move_upload_if_needed(upload_dir, node.hero_image_path, target_path)
+            if new_path != node.hero_image_path:
+                node.hero_image_path = new_path
+                moved_count += 1
+        if node.map_image_path:
+            target_path = f"uploads/nodes/{node.id}/{Path(node.map_image_path).name}"
+            new_path = _move_upload_if_needed(upload_dir, node.map_image_path, target_path)
+            if new_path != node.map_image_path:
+                node.map_image_path = new_path
+                moved_count += 1
+
+    for photo in NodePhoto.query.all():
+        target_path = f"uploads/nodes/{photo.node_id}/{Path(photo.image_path).name}"
+        new_path = _move_upload_if_needed(upload_dir, photo.image_path, target_path)
+        if new_path != photo.image_path:
+            photo.image_path = new_path
+            moved_count += 1
+
+    for image in NodeActivityImage.query.all():
+        target_path = f"uploads/nodes/{image.activity.node_id}/{Path(image.image_path).name}"
+        new_path = _move_upload_if_needed(upload_dir, image.image_path, target_path)
+        if new_path != image.image_path:
+            image.image_path = new_path
+            moved_count += 1
+
+    if moved_count:
+        db.session.commit()
+    return moved_count
 
 
 def create_app() -> Flask:
@@ -29,6 +110,70 @@ def create_app() -> Flask:
         db.create_all()
         sync_schema()
         ensure_seed_data()
+        settings = GardenSettings.get_or_create()
+        upload_dir = Path(app.config["UPLOAD_FOLDER"])
+        moved_count = _organize_upload_folders(upload_dir)
+        if moved_count:
+            app.logger.info("Reorganized %s upload paths into per-node folders.", moved_count)
+        optimization_targets: dict[str, int] = {}
+
+        for path in [
+            path
+            for (path,) in db.session.query(GardenSettings.map_image_path)
+            .filter(GardenSettings.map_image_path.isnot(None))
+            .all()
+        ]:
+            optimization_targets[path] = max(
+                optimization_targets.get(path, 0),
+                max_dimension_for_kind(settings, "homepage_map"),
+            )
+
+        for path in [
+            path
+            for (path,) in db.session.query(GardenNode.hero_image_path)
+            .filter(GardenNode.hero_image_path.isnot(None))
+            .all()
+        ]:
+            optimization_targets[path] = max(
+                optimization_targets.get(path, 0),
+                max_dimension_for_kind(settings, "node_display"),
+            )
+
+        for path in [
+            path
+            for (path,) in db.session.query(GardenNode.map_image_path)
+            .filter(GardenNode.map_image_path.isnot(None))
+            .all()
+        ]:
+            optimization_targets[path] = max(
+                optimization_targets.get(path, 0),
+                max_dimension_for_kind(settings, "node_map"),
+            )
+
+        for path in [path for (path,) in db.session.query(NodePhoto.image_path).all()]:
+            optimization_targets[path] = max(
+                optimization_targets.get(path, 0),
+                max_dimension_for_kind(settings, "node_photo"),
+            )
+
+        for path in [path for (path,) in db.session.query(NodeActivityImage.image_path).all()]:
+            optimization_targets[path] = max(
+                optimization_targets.get(path, 0),
+                max_dimension_for_kind(settings, "activity_image"),
+            )
+
+        optimized_count = 0
+        for relative_path, max_dimension in optimization_targets.items():
+            file_path = relative_upload_to_fs_path(upload_dir, relative_path)
+            if optimize_image_file(
+                file_path,
+                max_dimension=max_dimension,
+                jpeg_quality=app.config["IMAGE_JPEG_QUALITY"],
+                size_threshold=app.config["IMAGE_REPAIR_SIZE_THRESHOLD"],
+            ):
+                optimized_count += 1
+        if optimized_count:
+            app.logger.info("Optimized %s uploaded images during startup repair.", optimized_count)
 
     from .admin import bp as admin_bp
     from .auth import bp as auth_bp

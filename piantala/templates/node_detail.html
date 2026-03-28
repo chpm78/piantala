@@ -93,18 +93,14 @@
       </section>
     {% endif %}
 
-    {% if current_image_path %}
+    {% set show_display_panel = display_image_path and (ordered_photos or node.hero_image_path or (navigation_image_path and navigation_image_path != display_image_path)) %}
+
+    {% if show_display_panel %}
       <div class="inline-map-help">
         <div class="panel-header">
           <div>
-            <h2>{{ tr("node.visual_navigation") }}</h2>
-            <p>
-              {% if selected_photo %}
-                {{ tr("node.latest_photo_text") }}
-              {% else %}
-                {{ tr("node.hotspots_help") }}
-              {% endif %}
-            </p>
+            <h2>{{ tr("node.display_view") }}</h2>
+            <p>{{ tr("node.display_view_text") }}</p>
           </div>
           {% if selected_photo %}
             <div class="timeline-current-meta">
@@ -119,7 +115,40 @@
           <div class="image-stage">
             <img
               class="stage-image"
-              src="{{ url_for('static', filename=current_image_path) }}"
+              src="{{ url_for('static', filename=display_image_path) }}"
+              alt="{{ node.title }}"
+            >
+          </div>
+        </div>
+        {% if ordered_photos %}
+          <div class="photo-timeline" aria-label="Photo timeline">
+            {% for photo in ordered_photos %}
+              <a
+                class="timeline-chip {% if selected_photo and selected_photo.id == photo.id %}is-active{% endif %}"
+                href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None, display=display_mode if display_mode != 'cultivations' else None, ha_range=ha_history_range if ha_history_range != '1d' else None) }}"
+              >
+                <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
+                <span>{{ photo.taken_at.strftime("%b %Y") }}</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if navigation_image_path %}
+      <div class="inline-map-help">
+        <div class="panel-header">
+          <div>
+            <h2>{{ tr("node.visual_navigation") }}</h2>
+            <p>{{ tr("node.hotspots_help") }}</p>
+          </div>
+        </div>
+        <div class="garden-map image-overlay">
+          <div class="image-stage">
+            <img
+              class="stage-image"
+              src="{{ url_for('static', filename=navigation_image_path) }}"
               alt="{{ node.title }}"
             >
             {% for child in image_children %}
@@ -230,19 +259,6 @@
             {% endfor %}
           </div>
         </div>
-        {% if ordered_photos %}
-          <div class="photo-timeline" aria-label="Photo timeline">
-            {% for photo in ordered_photos %}
-              <a
-                class="timeline-chip {% if selected_photo and selected_photo.id == photo.id %}is-active{% endif %}"
-                href="{{ url_for('main.node_detail', node_id=node.id, photo=photo.id, show_dead=1 if show_dead_children else None, display=display_mode if display_mode != 'cultivations' else None, ha_range=ha_history_range if ha_history_range != '1d' else None) }}"
-              >
-                <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
-                <span>{{ photo.taken_at.strftime("%b %Y") }}</span>
-              </a>
-            {% endfor %}
-          </div>
-        {% endif %}
         <p class="hint" data-overlay-empty="true" {% if image_children or image_entities or image_irrigation_zones %}hidden{% endif %}>{{ tr("node.overlays_empty") }}</p>
       </div>
     {% endif %}
@@ -257,6 +273,10 @@
     {% if current_user.has_permission('manage_content') %}
       <form method="post" action="{{ url_for('main.delete_node', node_id=node.id) }}" class="inline-delete">
         {{ delete_form.hidden_tag() }}
+        <label class="inline-check">
+          {{ delete_form.remove_files(id="delete-node-remove-files") }}
+          <span>{{ tr("common.remove_uploaded_files") }}</span>
+        </label>
         <button type="submit" class="button button-danger" data-confirm="Delete this node and all nested content?">{{ tr("node.delete_node") }}</button>
       </form>
     {% endif %}
@@ -438,6 +458,10 @@
                   <a class="button button-secondary button-small" href="{{ url_for('main.edit_photo', photo_id=photo.id) }}">{{ tr("common.edit") }}</a>
                   <form method="post" action="{{ url_for('main.delete_photo', photo_id=photo.id) }}">
                     {{ delete_form.hidden_tag() }}
+                    <label class="inline-check">
+                      {{ delete_form.remove_files(id="delete-photo-remove-files-" ~ photo.id) }}
+                      <span>{{ tr("common.remove_uploaded_files") }}</span>
+                    </label>
                     <button type="submit" class="button button-danger button-small" data-confirm="Delete this photo?">{{ tr("common.delete") }}</button>
                   </form>
                 </div>
@@ -500,6 +524,10 @@
                   <a class="button button-secondary button-small" href="{{ url_for('main.edit_activity', activity_id=activity.id) }}">{{ tr("common.edit") }}</a>
                   <form method="post" action="{{ url_for('main.delete_activity', activity_id=activity.id) }}">
                     {{ delete_form.hidden_tag() }}
+                    <label class="inline-check">
+                      {{ delete_form.remove_files(id="delete-activity-remove-files-" ~ activity.id) }}
+                      <span>{{ tr("common.remove_uploaded_files") }}</span>
+                    </label>
                     <button type="submit" class="button button-danger button-small" data-confirm="Delete this activity?">{{ tr("common.delete") }}</button>
                   </form>
                 </div>

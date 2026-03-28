@@ -1,4 +1,7 @@
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from collections import defaultdict
+from pathlib import Path
+
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from .home_assistant import HomeAssistantError, sync_entity_catalog, test_connection
@@ -12,6 +15,7 @@ from .forms import (
     MarkerColorForm,
     UserForm,
 )
+from .media import Image, relative_upload_to_fs_path
 from .models import (
     ActivityType,
     GardenSettings,
@@ -20,7 +24,9 @@ from .models import (
     LinkType,
     MarkerColor,
     NodeActivity,
+    NodeActivityImage,
     NodeExternalLink,
+    NodePhoto,
     GardenNode,
     Role,
     TranslationEntry,
@@ -31,6 +37,257 @@ from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+
+def _format_bytes(size_in_bytes: int | None) -> str:
+    """Return a human-readable file size string.
+
+    Parameters:
+        size_in_bytes: Raw size in bytes.
+    """
+    if size_in_bytes is None:
+        return "Unknown"
+    size = float(size_in_bytes)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size_in_bytes} B"
+
+
+def _sqlite_database_path() -> Path | None:
+    """Return the local SQLite database path when Piantala is using SQLite."""
+    database_uri = current_app.config["SQLALCHEMY_DATABASE_URI"]
+    prefix = "sqlite:///"
+    if not database_uri.startswith(prefix):
+        return None
+    return Path(database_uri.removeprefix(prefix))
+
+
+def _upload_directory() -> Path:
+    """Return the absolute upload directory configured for Piantala."""
+    return Path(current_app.config["UPLOAD_FOLDER"])
+
+
+def _upload_relative_path(file_path: Path) -> str:
+    """Convert an absolute upload file path to the stored relative image path.
+
+    Parameters:
+        file_path: Absolute file path inside the configured upload directory.
+    """
+    return f"uploads/{file_path.relative_to(_upload_directory()).as_posix()}"
+
+
+def _upload_folder_path(file_path: Path) -> str:
+    """Return the logical upload folder for one absolute upload file.
+
+    Parameters:
+        file_path: Absolute upload file path inside the configured upload directory.
+    """
+    relative_parent = file_path.parent.relative_to(_upload_directory()).as_posix()
+    return relative_parent or "."
+
+
+def _upload_directory_size(upload_dir: Path) -> int:
+    """Calculate the total size of all files stored in the upload directory.
+
+    Parameters:
+        upload_dir: Absolute upload directory to inspect.
+    """
+    total_size = 0
+    if not upload_dir.exists():
+        return total_size
+    for file_path in upload_dir.rglob("*"):
+        if file_path.is_file():
+            try:
+                total_size += file_path.stat().st_size
+            except OSError:
+                continue
+    return total_size
+
+
+def _image_dimensions(file_path: Path) -> str:
+    """Return one image size label like `1920 x 1080 px` when readable.
+
+    Parameters:
+        file_path: Absolute image file path to inspect.
+    """
+    if Image is None or not file_path.exists():
+        return ""
+    try:
+        with Image.open(file_path) as image:
+            return f"{image.width} x {image.height} px"
+    except Exception:
+        return ""
+
+
+def _image_usage_map() -> dict[str, list[dict[str, str]]]:
+    """Collect upload usage references grouped by stored relative image path."""
+    usage_map: dict[str, list[dict[str, str]]] = defaultdict(list)
+
+    settings = GardenSettings.get_or_create()
+    if settings.map_image_path:
+        usage_map[settings.map_image_path].append(
+            {
+                "label": "Garden map image",
+                "target": url_for("main.map_settings"),
+            }
+        )
+
+    for node in GardenNode.query.order_by(GardenNode.title).all():
+        if node.hero_image_path:
+            usage_map[node.hero_image_path].append(
+                {
+                    "label": f"{node.level_label} display image · {node.title}",
+                    "target": url_for("main.node_detail", node_id=node.id),
+                }
+            )
+        if node.map_image_path:
+            usage_map[node.map_image_path].append(
+                {
+                    "label": f"{node.level_label} map image · {node.title}",
+                    "target": url_for("main.node_detail", node_id=node.id),
+                }
+            )
+
+    for photo in NodePhoto.query.join(GardenNode).order_by(NodePhoto.id).all():
+        usage_map[photo.image_path].append(
+            {
+                "label": f"{photo.node.level_label} photo · {photo.node.title}",
+                "target": url_for("main.node_detail", node_id=photo.node_id),
+            }
+        )
+
+    for image in NodeActivityImage.query.join(NodeActivity).join(GardenNode).order_by(NodeActivityImage.id).all():
+        usage_map[image.image_path].append(
+            {
+                "label": f"Activity image · {image.activity.node.level_label} · {image.activity.node.title}",
+                "target": url_for("main.node_detail", node_id=image.activity.node_id),
+            }
+        )
+
+    return usage_map
+
+
+def _upload_inventory(folder: str | None = None, *, unused_only: bool = False) -> list[dict[str, object]]:
+    """Build a detailed inventory of upload files and where each file is used.
+
+    Parameters:
+        folder: Optional upload subfolder filter such as `nodes/12`.
+        unused_only: When True, keep only files without any usage reference.
+    """
+    upload_dir = _upload_directory()
+    usage_map = _image_usage_map()
+    inventory: list[dict[str, object]] = []
+    seen_relative_paths: set[str] = set()
+    folder_filter = folder.strip("/") if folder else None
+
+    if upload_dir.exists():
+        for file_path in sorted(
+            [path for path in upload_dir.rglob("*") if path.is_file()],
+            key=lambda path: path.stat().st_size,
+            reverse=True,
+        ):
+            relative_path = _upload_relative_path(file_path)
+            folder_path = _upload_folder_path(file_path)
+            if folder_filter is not None and folder_path != folder_filter:
+                continue
+            seen_relative_paths.add(relative_path)
+            file_size = file_path.stat().st_size
+            usages = usage_map.get(relative_path, [])
+            if unused_only and usages:
+                continue
+            inventory.append(
+                {
+                    "folder_path": folder_path,
+                    "relative_path": relative_path,
+                    "size_bytes": file_size,
+                    "size_label": _format_bytes(file_size),
+                    "dimension_label": _image_dimensions(file_path),
+                    "usages": usages,
+                    "missing": False,
+                }
+            )
+
+    for relative_path, usages in usage_map.items():
+        if relative_path in seen_relative_paths:
+            continue
+        folder_path = str(Path(relative_path.removeprefix("uploads/")).parent)
+        if folder_path == ".":
+            folder_path = "."
+        if folder_filter is not None and folder_path != folder_filter:
+            continue
+        if unused_only and usages:
+            continue
+        inventory.append(
+            {
+                "folder_path": folder_path,
+                "relative_path": relative_path,
+                "size_bytes": None,
+                "size_label": _format_bytes(None),
+                "dimension_label": "",
+                "usages": usages,
+                "missing": True,
+            }
+        )
+
+    inventory.sort(
+        key=lambda item: (
+            item["size_bytes"] is None,
+            -(item["size_bytes"] or 0),
+            str(item["relative_path"]).lower(),
+        )
+    )
+    return inventory
+
+
+def _upload_folder_inventory() -> list[dict[str, object]]:
+    """Return upload folders with aggregated size and file counts."""
+    folder_map: dict[str, dict[str, object]] = {}
+    for item in _upload_inventory():
+        folder_path = str(item["folder_path"])
+        folder_entry = folder_map.setdefault(
+            folder_path,
+            {
+                "folder_path": folder_path,
+                "total_size_bytes": 0,
+                "total_size_label": "0 B",
+                "file_count": 0,
+                "unused_count": 0,
+            },
+        )
+        folder_entry["file_count"] = int(folder_entry["file_count"]) + 1
+        folder_entry["total_size_bytes"] = int(folder_entry["total_size_bytes"]) + int(item["size_bytes"] or 0)
+        if not item["usages"]:
+            folder_entry["unused_count"] = int(folder_entry["unused_count"]) + 1
+
+    folders = list(folder_map.values())
+    for folder in folders:
+        folder["total_size_label"] = _format_bytes(int(folder["total_size_bytes"]))
+    folders.sort(key=lambda entry: str(entry["folder_path"]).lower())
+    return folders
+
+
+def _delete_upload_file(relative_path: str) -> bool:
+    """Delete one physical upload file when it is no longer referenced.
+
+    Parameters:
+        relative_path: Stored relative `uploads/...` path.
+    """
+    usage_map = _image_usage_map()
+    if usage_map.get(relative_path):
+        return False
+    file_path = relative_upload_to_fs_path(_upload_directory(), relative_path)
+    try:
+        if file_path.exists():
+            file_path.unlink()
+            return True
+    except OSError:
+        return False
+    return False
 
 
 def _link_type_name_values(link_type: LinkType | None = None) -> dict[str, str]:
@@ -76,6 +333,101 @@ def index():
         )
     flash("You do not have permission for that action.", "danger")
     return redirect(url_for("main.index"))
+
+
+@bp.route("/storage")
+@login_required
+@permission_required("manage_users")
+def storage():
+    """Show database and upload directory usage for administrators."""
+    db_path = _sqlite_database_path()
+    db_size_bytes = None
+    if db_path is not None and db_path.exists():
+        db_size_bytes = db_path.stat().st_size
+
+    upload_dir = _upload_directory()
+    upload_size_bytes = _upload_directory_size(upload_dir)
+    upload_file_count = len([path for path in upload_dir.rglob("*") if path.is_file()]) if upload_dir.exists() else 0
+
+    return render_template(
+        "admin_storage.html",
+        settings=GardenSettings.get_or_create(),
+        image_tools_available=Image is not None,
+        db_path=str(db_path) if db_path is not None else None,
+        db_size_bytes=db_size_bytes,
+        db_size_label=_format_bytes(db_size_bytes),
+        upload_dir=str(upload_dir),
+        upload_size_bytes=upload_size_bytes,
+        upload_size_label=_format_bytes(upload_size_bytes),
+        upload_file_count=upload_file_count,
+        image_dir=str(upload_dir),
+    )
+
+
+@bp.route("/storage/uploads")
+@login_required
+@permission_required("manage_users")
+def upload_inventory():
+    """List uploaded images with size and usage references."""
+    selected_folder = (request.args.get("folder") or "").strip() or None
+    unused_only = request.args.get("show") == "unused"
+    requested_view = (request.args.get("view") or "").strip().lower()
+    view_mode = requested_view if requested_view in {"list", "thumbs"} else "list"
+    back_target = None
+    if unused_only and selected_folder:
+        back_target = url_for("admin.upload_inventory", folder=selected_folder, view=view_mode)
+    elif unused_only or selected_folder:
+        back_target = url_for("admin.upload_inventory")
+    folder_inventory = _upload_folder_inventory()
+    inventory = _upload_inventory(selected_folder, unused_only=unused_only)
+    total_size = sum(item["size_bytes"] or 0 for item in inventory)
+    return render_template(
+        "admin_upload_inventory.html",
+        settings=GardenSettings.get_or_create(),
+        image_tools_available=Image is not None,
+        folder_inventory=folder_inventory,
+        selected_folder=selected_folder,
+        unused_only=unused_only,
+        view_mode=view_mode,
+        back_target=back_target,
+        inventory=inventory,
+        total_size_label=_format_bytes(total_size),
+        total_files=len(inventory),
+        delete_form=DeleteForm(),
+        cleanup_form=ActionForm(prefix="cleanup"),
+    )
+
+
+@bp.route("/storage/uploads/delete-orphan", methods=["POST"])
+@login_required
+@permission_required("manage_users")
+def delete_orphan_upload():
+    """Delete one upload file only when it is not referenced anywhere."""
+    form = DeleteForm()
+    relative_path = request.form.get("relative_path", "").strip()
+    if form.validate_on_submit() and relative_path:
+        if _delete_upload_file(relative_path):
+            flash("Unused upload file deleted.", "success")
+        else:
+            flash("That file is still referenced or could not be deleted.", "warning")
+    return redirect(url_for("admin.upload_inventory"))
+
+
+@bp.route("/storage/uploads/delete-unused", methods=["POST"])
+@login_required
+@permission_required("manage_users")
+def delete_unused_uploads():
+    """Delete every upload file that is currently orphaned."""
+    form = ActionForm(prefix="cleanup")
+    if form.validate_on_submit():
+        removed_count = 0
+        for item in _upload_inventory():
+            if item["usages"] or item["missing"]:
+                continue
+            if _delete_upload_file(str(item["relative_path"])):
+                removed_count += 1
+        flash(f"Deleted {removed_count} unused upload file(s).", "success")
+    return redirect(url_for("admin.upload_inventory"))
 
 
 def _last_active_admin_guard(user: User, selected_roles: list[Role], is_active: bool) -> bool:

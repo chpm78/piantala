@@ -77,6 +77,11 @@
       </label>
 
       <label>
+        <span>{{ tr("node.image_usage") }}</span>
+        {{ form.hero_image_role(class_="input") }}
+      </label>
+
+      <label>
         <span>{{ tr("node.image_display_mode") }}</span>
         {{ form.image_display_mode(class_="input") }}
       </label>
@@ -194,6 +199,34 @@
       <p>{{ tr("node.image_framing_text") }}</p>
     </div>
 
+    {% if node and (node.display_image or node.map_image_path) %}
+      <div class="inline-map-help">
+        <h2>{{ tr("node.current_images") }}</h2>
+        <div class="card-grid">
+          {% if node.display_image %}
+            <article class="card">
+              <div class="card-image-shell" style="{{ node.image_display_style }}">
+                <img class="card-image" src="{{ url_for('static', filename=node.display_image) }}" alt="{{ tr('node.image_role_display') }}">
+              </div>
+              <div class="card-body">
+                <strong>{{ tr("node.image_role_display") }}</strong>
+              </div>
+            </article>
+          {% endif %}
+          {% if node.map_image_path %}
+            <article class="card">
+              <div class="card-image-shell" style="{{ node.image_display_style }}">
+                <img class="card-image" src="{{ url_for('static', filename=node.map_image_path) }}" alt="{{ tr('node.image_role_map') }}">
+              </div>
+              <div class="card-body">
+                <strong>{{ tr("node.image_role_map") }}</strong>
+              </div>
+            </article>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
     {% if parent %}
       <div class="inline-map-help">
         <h2>{{ tr("node.overlay_style") }}</h2>
@@ -257,7 +290,7 @@
         </div>
         <p id="image-picker-feedback" class="hint">{{ tr("node.click_estimate") }}</p>
       </div>
-    {% elif parent and parent.display_image %}
+    {% elif parent and parent.map_view_image %}
       <div class="inline-map-help">
         <h2>{{ tr("node.child_hotspot_helper") }}</h2>
         <p>{{ tr("node.child_hotspot_text") }}</p>
@@ -276,7 +309,7 @@
           <div class="image-stage">
             <img
               class="stage-image"
-              src="{{ url_for('static', filename=parent.display_image) }}"
+              src="{{ url_for('static', filename=parent.map_view_image) }}"
               alt="Parent image helper"
             >
             {% for sibling in parent.children if sibling.has_hotspot and (node is none or sibling.id != node.id) %}
@@ -344,7 +377,7 @@
             <h2>{{ tr("node.home_assistant") }}</h2>
             <p>{{ tr("node.entity_help") }}</p>
           </div>
-          <a class="button" href="{{ url_for('main.add_entity', node_id=node.id) }}">{{ tr("node.add_entity") }}</a>
+          <a class="button" href="{{ url_for('main.add_entity', node_id=node.id) }}">{{ tr("node.link_home_assistant_entity") }}</a>
         </div>
 
         {% if node.ha_entities %}
@@ -388,7 +421,7 @@
       </section>
     {% endif %}
 
-    {% if node and node.display_image %}
+    {% if node and node.map_view_image %}
       <section class="panel">
         <div class="panel-header">
           <div>

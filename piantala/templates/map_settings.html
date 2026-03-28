@@ -74,6 +74,41 @@
       <div class="settings-section">
         <div class="panel-header">
           <div>
+            <p class="eyebrow">{{ tr("map_settings.appearance") }}</p>
+            <h2>{{ tr("map_settings.image_limits") }}</h2>
+            <p>{{ tr("map_settings.image_limits_text") }}</p>
+          </div>
+        </div>
+
+        <label>
+          <span>{{ tr("map_settings.homepage_map_max_dimension") }}</span>
+          {{ form.homepage_map_max_dimension(class_="input") }}
+        </label>
+
+        <label>
+          <span>{{ tr("map_settings.node_display_max_dimension") }}</span>
+          {{ form.node_display_max_dimension(class_="input") }}
+        </label>
+
+        <label>
+          <span>{{ tr("map_settings.node_map_max_dimension") }}</span>
+          {{ form.node_map_max_dimension(class_="input") }}
+        </label>
+
+        <label>
+          <span>{{ tr("map_settings.node_photo_max_dimension") }}</span>
+          {{ form.node_photo_max_dimension(class_="input") }}
+        </label>
+
+        <label>
+          <span>{{ tr("map_settings.activity_image_max_dimension") }}</span>
+          {{ form.activity_image_max_dimension(class_="input") }}
+        </label>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
             <p class="eyebrow">{{ tr("nav.map") }}</p>
             <h2>{{ tr("map_settings.provider") }}</h2>
           </div>

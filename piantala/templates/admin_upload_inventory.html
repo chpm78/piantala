@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.uploads.title") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    {% if selected_folder or unused_only %}
+      <div class="breadcrumb-row">
+        <a class="text-link" href="{{ url_for('admin.upload_inventory') }}">{{ tr("admin.uploads.folders") }}</a>
+        {% if selected_folder %}
+          <span>/</span>
+          <span><code>{{ selected_folder }}</code></span>
+        {% endif %}
+        {% if unused_only %}
+          <span>/</span>
+          <span>{{ tr("admin.uploads.show_unused") }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.uploads.heading") }}</p>
+        <h1>{{ tr("admin.uploads.title") }}</h1>
+        <p>{{ tr("admin.uploads.description") }}</p>
+      </div>
+      <div>
+        <div class="detail-meta">
+          <span class="status-pill">{{ tr("admin.uploads.summary") }}: {{ total_files }}</span>
+          <span class="status-pill">{{ tr("admin.uploads.total_size") }}: {{ total_size_label }}</span>
+        </div>
+        <div class="hero-actions">
+          {% if back_target %}
+            <a class="button button-secondary button-small" href="{{ back_target }}">{{ tr("admin.uploads.back_to_folders") if not (unused_only and selected_folder) else tr("common.back") }}</a>
+          {% endif %}
+          {% if selected_folder or unused_only %}
+            <a class="button button-secondary button-small {% if view_mode == 'list' %}is-active-view{% endif %}" href="{{ url_for('admin.upload_inventory', folder=selected_folder, show='unused' if unused_only else None, view='list') }}">{{ tr("admin.uploads.view_list") }}</a>
+            <a class="button button-secondary button-small {% if view_mode == 'thumbs' %}is-active-view{% endif %}" href="{{ url_for('admin.upload_inventory', folder=selected_folder, show='unused' if unused_only else None, view='thumbs') }}">{{ tr("admin.uploads.view_thumbnails") }}</a>
+          {% endif %}
+          {% if not unused_only %}
+            <a class="button button-secondary button-small" href="{{ url_for('admin.upload_inventory', show='unused', folder=selected_folder, view=view_mode) }}">{{ tr("admin.uploads.show_unused") }}</a>
+          {% else %}
+            <a class="button button-secondary button-small" href="{{ url_for('admin.upload_inventory', folder=selected_folder, view=view_mode) }}">{{ tr("admin.uploads.show_all") }}</a>
+          {% endif %}
+          <form method="post" action="{{ url_for('admin.delete_unused_uploads') }}" class="inline-delete">
+            {{ cleanup_form.hidden_tag() }}
+            <button type="submit" class="button button-danger button-small" data-confirm="Delete every unused upload file?">{{ tr("admin.uploads.delete_unused") }}</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {% if not image_tools_available %}
+      <div class="empty-state">
+        <h3>{{ tr("admin.storage.image_tools_missing") }}</h3>
+        <p>{{ tr("admin.storage.image_tools_missing_text") }}</p>
+      </div>
+    {% endif %}
+
+    {% if not selected_folder and not unused_only %}
+      {% if folder_inventory %}
+        <div class="table-wrap">
+          <table class="data-table" data-sortable-table="true">
+            <thead>
+              <tr>
+                <th><button type="button" class="table-sort-button" data-sort-column="0" data-sort-type="text">{{ tr("admin.uploads.folder") }}</button></th>
+                <th><button type="button" class="table-sort-button" data-sort-column="1" data-sort-type="bytes">{{ tr("admin.storage.size") }}</button></th>
+                <th><button type="button" class="table-sort-button" data-sort-column="2" data-sort-type="number">{{ tr("admin.storage.files") }}</button></th>
+                <th><button type="button" class="table-sort-button" data-sort-column="3" data-sort-type="number">{{ tr("admin.uploads.unused_count") }}</button></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for folder in folder_inventory %}
+                <tr>
+                  <td data-sort-value="{{ folder.folder_path|lower }}"><a class="text-link" href="{{ url_for('admin.upload_inventory', folder=folder.folder_path) }}"><code>{{ folder.folder_path }}</code></a></td>
+                  <td data-sort-value="{{ folder.total_size_bytes }}">{{ folder.total_size_label }}</td>
+                  <td data-sort-value="{{ folder.file_count }}">{{ folder.file_count }}</td>
+                  <td data-sort-value="{{ folder.unused_count }}">{{ folder.unused_count }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <h3>{{ tr("admin.uploads.title") }}</h3>
+          <p>{{ tr("admin.uploads.description") }}</p>
+        </div>
+      {% endif %}
+    {% elif inventory and view_mode == 'list' %}
+      <div class="table-wrap">
+        <table class="data-table" data-sortable-table="true">
+          <thead>
+            <tr>
+              <th><button type="button" class="table-sort-button" data-sort-column="0" data-sort-type="text">{{ tr("admin.uploads.relative_path") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="1" data-sort-type="bytes">{{ tr("admin.storage.size") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="2" data-sort-type="pixels">{{ tr("admin.uploads.image_size") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="3" data-sort-type="text">{{ tr("admin.uploads.used_by") }}</button></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in inventory %}
+              <tr>
+                <td data-sort-value="{{ item.relative_path|lower }}">
+                  {% if not item.missing %}
+                    <strong><a class="text-link" href="{{ url_for('static', filename=item.relative_path) }}" target="_blank" rel="noreferrer"><code>{{ item.relative_path }}</code></a></strong>
+                    <div><a class="text-link" href="{{ url_for('static', filename=item.relative_path) }}" download="{{ item.relative_path.split('/')[-1] }}">{{ tr("admin.uploads.download") }}</a></div>
+                  {% else %}
+                    <strong><code>{{ item.relative_path }}</code></strong>
+                  {% endif %}
+                  {% if item.missing %}
+                    <div class="muted">{{ tr("admin.uploads.missing") }}</div>
+                  {% endif %}
+                </td>
+                <td data-sort-value="{{ item.size_bytes if item.size_bytes is not none else -1 }}">{{ item.size_label }}</td>
+                <td data-sort-value="{{ item.dimension_label }}">{{ item.dimension_label or "—" }}</td>
+                <td data-sort-value="{{ (item.usages | map(attribute='label') | join(' '))|lower }}">
+                  {% if item.usages %}
+                    {% for usage in item.usages %}
+                      <div><a class="text-link" href="{{ usage.target }}">{{ usage.label }}</a></div>
+                    {% endfor %}
+                  {% else %}
+                    <span class="muted">{{ tr("admin.uploads.no_usage") }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if not item.usages and not item.missing %}
+                    <form method="post" action="{{ url_for('admin.delete_orphan_upload') }}">
+                      {{ delete_form.hidden_tag() }}
+                      <input type="hidden" name="relative_path" value="{{ item.relative_path }}">
+                      <button type="submit" class="button button-danger button-small" data-confirm="Delete this unused upload file?">{{ tr("admin.uploads.delete_file") }}</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% elif inventory %}
+      <div class="card-grid upload-thumb-grid">
+        {% for item in inventory %}
+          <article class="card upload-thumb-card">
+            {% if not item.missing %}
+              <a class="card-media-link" href="{{ url_for('static', filename=item.relative_path) }}" target="_blank" rel="noreferrer">
+                <div class="card-image-shell upload-thumb-shell">
+                  <img class="card-image upload-thumb-image" src="{{ url_for('static', filename=item.relative_path) }}" alt="{{ item.relative_path }}">
+                </div>
+              </a>
+            {% endif %}
+            <div class="card-body">
+              <p>
+                {% if not item.missing %}
+                  <a class="text-link" href="{{ url_for('static', filename=item.relative_path) }}" target="_blank" rel="noreferrer"><code>{{ item.relative_path }}</code></a>
+                {% else %}
+                  <code>{{ item.relative_path }}</code>
+                {% endif %}
+              </p>
+              {% if not item.missing %}
+                <p><a class="text-link" href="{{ url_for('static', filename=item.relative_path) }}" download="{{ item.relative_path.split('/')[-1] }}">{{ tr("admin.uploads.download") }}</a></p>
+              {% endif %}
+              {% if item.missing %}
+                <p class="muted">{{ tr("admin.uploads.missing") }}</p>
+              {% endif %}
+              <p>{{ tr("admin.storage.size") }}: {{ item.size_label }}</p>
+              <p>{{ tr("admin.uploads.image_size") }}: {{ item.dimension_label or "—" }}</p>
+              {% if item.usages %}
+                <div class="upload-thumb-usage">
+                  {% for usage in item.usages %}
+                    <div><a class="text-link" href="{{ usage.target }}">{{ usage.label }}</a></div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="muted">{{ tr("admin.uploads.no_usage") }}</p>
+              {% endif %}
+              {% if not item.usages and not item.missing %}
+                <form method="post" action="{{ url_for('admin.delete_orphan_upload') }}">
+                  {{ delete_form.hidden_tag() }}
+                  <input type="hidden" name="relative_path" value="{{ item.relative_path }}">
+                  <button type="submit" class="button button-danger button-small" data-confirm="Delete this unused upload file?">{{ tr("admin.uploads.delete_file") }}</button>
+                </form>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <h3>{{ tr("admin.uploads.title") }}</h3>
+        <p>{{ tr("admin.uploads.description") }}</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      function parseSortValue(cell, type) {
+        const rawValue = cell.dataset.sortValue ?? cell.textContent.trim();
+        if (type === "number" || type === "bytes") {
+          const parsed = Number.parseFloat(rawValue);
+          return Number.isNaN(parsed) ? -1 : parsed;
+        }
+        if (type === "pixels") {
+          const match = rawValue.match(/(\d+)\s*x\s*(\d+)/i);
+          if (!match) return -1;
+          return Number.parseInt(match[1], 10) * Number.parseInt(match[2], 10);
+        }
+        return rawValue.toLowerCase();
+      }
+
+      document.querySelectorAll('[data-sortable-table="true"]').forEach((table) => {
+        const tbody = table.querySelector("tbody");
+        if (!tbody) return;
+
+        table.querySelectorAll("[data-sort-column]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const columnIndex = Number.parseInt(button.dataset.sortColumn || "0", 10);
+            const sortType = button.dataset.sortType || "text";
+            const nextDirection = button.dataset.sortDirection === "asc" ? "desc" : "asc";
+
+            table.querySelectorAll("[data-sort-column]").forEach((otherButton) => {
+              if (otherButton !== button) {
+                otherButton.dataset.sortDirection = "";
+              }
+            });
+            button.dataset.sortDirection = nextDirection;
+
+            const rows = Array.from(tbody.querySelectorAll("tr"));
+            rows.sort((leftRow, rightRow) => {
+              const leftValue = parseSortValue(leftRow.children[columnIndex], sortType);
+              const rightValue = parseSortValue(rightRow.children[columnIndex], sortType);
+              if (leftValue < rightValue) return nextDirection === "asc" ? -1 : 1;
+              if (leftValue > rightValue) return nextDirection === "asc" ? 1 : -1;
+              return 0;
+            });
+            rows.forEach((row) => tbody.appendChild(row));
+          });
+        });
+      });
+    })();
+  </script>
+{% endblock %}

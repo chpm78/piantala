@@ -70,6 +70,31 @@ class MapSettingsForm(FlaskForm):
         "Map image",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
     )
+    homepage_map_max_dimension = IntegerField(
+        "Homepage map max size (px)",
+        validators=[DataRequired(), NumberRange(min=400, max=8000)],
+        default=2560,
+    )
+    node_display_max_dimension = IntegerField(
+        "Node display image max size (px)",
+        validators=[DataRequired(), NumberRange(min=400, max=8000)],
+        default=2200,
+    )
+    node_map_max_dimension = IntegerField(
+        "Node map image max size (px)",
+        validators=[DataRequired(), NumberRange(min=400, max=8000)],
+        default=2560,
+    )
+    node_photo_max_dimension = IntegerField(
+        "Node photo max size (px)",
+        validators=[DataRequired(), NumberRange(min=400, max=8000)],
+        default=2200,
+    )
+    activity_image_max_dimension = IntegerField(
+        "Activity image max size (px)",
+        validators=[DataRequired(), NumberRange(min=400, max=8000)],
+        default=1800,
+    )
     google_maps_center_lat = DecimalField(
         "Google Maps center latitude",
         places=6,
@@ -302,6 +327,15 @@ class NodeForm(FlaskForm):
     hero_image = FileField(
         "Hero image",
         validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    hero_image_role = SelectField(
+        "Image usage",
+        choices=[
+            ("display", "Display"),
+            ("map", "Map"),
+        ],
+        validators=[DataRequired()],
+        default="display",
     )
     image_display_mode = SelectField(
         "Image display mode",
@@ -677,4 +711,5 @@ class IrrigationZoneForm(FlaskForm):
 
 
 class DeleteForm(FlaskForm):
+    remove_files = BooleanField("Also remove uploaded files", default=False)
     submit = SubmitField("Delete")

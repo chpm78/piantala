@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, UTC
+from pathlib import Path
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -19,7 +20,7 @@ from .forms import (
     PhotoForm,
 )
 from .home_assistant import HomeAssistantError, fetch_entity_history
-from .media import extract_exif_taken_at, filename_stem
+from .media import extract_exif_taken_at, filename_stem, remove_unreferenced_uploads
 from .models import (
     ActivityType,
     DEFAULT_IRRIGATION_ZONE_COLOR,
@@ -66,6 +67,47 @@ MARKER_ICON_SUGGESTIONS = [
 def _settings() -> GardenSettings:
     """Return the singleton site-wide settings record."""
     return GardenSettings.get_or_create()
+
+
+def _upload_directory() -> Path:
+    """Return the absolute upload directory configured for the current app."""
+    from flask import current_app
+
+    return Path(current_app.config["UPLOAD_FOLDER"])
+
+
+def _collect_activity_image_paths(activity: NodeActivity) -> set[str]:
+    """Collect image paths linked to an activity.
+
+    Parameters:
+        activity: Activity whose uploaded images should be collected.
+    """
+    return {image.image_path for image in activity.images if image.image_path}
+
+
+def _collect_node_image_paths(node: GardenNode) -> set[str]:
+    """Collect every uploaded image path reachable from a node subtree.
+
+    Parameters:
+        node: Root node whose direct and nested uploaded images should be collected.
+    """
+    image_paths: set[str] = set()
+
+    def visit(current_node: GardenNode) -> None:
+        if current_node.hero_image_path:
+            image_paths.add(current_node.hero_image_path)
+        if current_node.map_image_path:
+            image_paths.add(current_node.map_image_path)
+        for photo in current_node.photos:
+            if photo.image_path:
+                image_paths.add(photo.image_path)
+        for activity in current_node.activities:
+            image_paths.update(_collect_activity_image_paths(activity))
+        for child in current_node.children:
+            visit(child)
+
+    visit(node)
+    return image_paths
 
 
 def _current_locale() -> str:
@@ -460,6 +502,7 @@ def _clone_cultivation_node(source: GardenNode, target_parent: GardenNode, targe
         planting_date=planting_date,
         death_year=None,
         hero_image_path=None,
+        map_image_path=None,
         image_display_mode=source.image_display_mode,
         image_focus_x=source.image_focus_x,
         image_focus_y=source.image_focus_y,
@@ -592,9 +635,19 @@ def map_settings():
         )
         settings.google_maps_zoom = form.google_maps_zoom.data or 19
 
-        uploaded_map = save_uploaded_file(form.map_image.data, "map")
+        uploaded_map = save_uploaded_file(
+            form.map_image.data,
+            "map",
+            image_kind="homepage_map",
+            subfolder="site",
+        )
         if uploaded_map:
             settings.map_image_path = uploaded_map
+        settings.homepage_map_max_dimension = form.homepage_map_max_dimension.data
+        settings.node_display_max_dimension = form.node_display_max_dimension.data
+        settings.node_map_max_dimension = form.node_map_max_dimension.data
+        settings.node_photo_max_dimension = form.node_photo_max_dimension.data
+        settings.activity_image_max_dimension = form.activity_image_max_dimension.data
 
         db.session.commit()
         flash("Map settings updated.", "success")
@@ -658,6 +711,8 @@ def node_detail(node_id: int):
         if selected_photo is not None
         else node.display_image
     )
+    display_image_path = current_image_path
+    navigation_image_path = node.map_view_image
     visible_children = list(node.children)
     image_children = [
         child
@@ -720,6 +775,8 @@ def node_detail(node_id: int):
         clone_year_range=year_range,
         cultivation_history=cultivation_history,
         current_image_path=current_image_path,
+        display_image_path=display_image_path,
+        navigation_image_path=navigation_image_path,
         selected_photo=selected_photo,
         ordered_photos=ordered_photos,
         display_mode=display_mode,
@@ -894,6 +951,10 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         ("contain", labels.get("node.display_contain", "Show full image")),
         ("cover", labels.get("node.display_cover", "Crop to fill")),
     ]
+    form.hero_image_role.choices = [
+        ("display", labels.get("node.image_role_display", "Display")),
+        ("map", labels.get("node.image_role_map", "Map")),
+    ]
     form.overlay_shape.choices = [
         ("point", labels.get("node.shape_point", "Point")),
         ("area", labels.get("node.shape_area", "Area")),
@@ -912,6 +973,7 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         form.image_display_mode.data = "contain"
         form.image_focus_x.data = 50
         form.image_focus_y.data = 50
+        form.hero_image_role.data = "display"
         form.quantity.data = 1
         form.overlay_shape.data = "point"
         form.overlay_width.data = 18
@@ -943,11 +1005,13 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             default_marker_color_id = _default_marker_color_id(node.node_type, marker_colors)
             if default_marker_color_id is not None:
                 form.marker_color_id.data = default_marker_color_id
+        form.hero_image_role.data = "display"
 
     if form.validate_on_submit():
         if node is None:
             node = GardenNode(parent=parent, level=level)
             db.session.add(node)
+            db.session.flush()
 
         node.title = form.title.data.strip()
         node.node_type = form.node_type.data
@@ -1059,9 +1123,18 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             else None
         )
 
-        uploaded_image = save_uploaded_file(form.hero_image.data, f"node-{level}")
+        image_kind = "node_map" if form.hero_image_role.data == "map" else "node_display"
+        uploaded_image = save_uploaded_file(
+            form.hero_image.data,
+            f"node-{level}",
+            image_kind=image_kind,
+            subfolder=f"nodes/{node.id}",
+        )
         if uploaded_image:
-            node.hero_image_path = uploaded_image
+            if form.hero_image_role.data == "map":
+                node.map_image_path = uploaded_image
+            else:
+                node.hero_image_path = uploaded_image
 
         db.session.commit()
         flash("Node saved.", "success")
@@ -1095,8 +1168,13 @@ def delete_node(node_id: int):
     parent_id = node.parent_id
     form = DeleteForm()
     if form.validate_on_submit():
+        image_paths = _collect_node_image_paths(node) if form.remove_files.data else set()
         db.session.delete(node)
         db.session.commit()
+        if image_paths:
+            removed_count = remove_unreferenced_uploads(_upload_directory(), image_paths)
+            if removed_count:
+                flash(f"Removed {removed_count} uploaded file(s).", "success")
         flash("Node deleted.", "success")
     else:
         flash("Delete request was rejected.", "danger")
@@ -1125,7 +1203,12 @@ def add_photo(node_id: int):
                 continue
 
             taken_at = extract_exif_taken_at(image) or datetime.now(UTC)
-            image_path = save_uploaded_file(image, f"photo-{node.id}")
+            image_path = save_uploaded_file(
+                image,
+                f"photo-{node.id}",
+                image_kind="node_photo",
+                subfolder=f"nodes/{node.id}",
+            )
             photo = NodePhoto(
                 node=node,
                 title=filename_stem(image.filename),
@@ -1171,7 +1254,12 @@ def add_activity(node_id: int):
         for image in form.images.data or []:
             if image is None or not image.filename:
                 continue
-            image_path = save_uploaded_file(image, f"activity-{activity.id}")
+            image_path = save_uploaded_file(
+                image,
+                f"activity-{activity.id}",
+                image_kind="activity_image",
+                subfolder=f"nodes/{node.id}",
+            )
             if not image_path:
                 continue
             db.session.add(
@@ -1217,7 +1305,12 @@ def edit_activity(activity_id: int):
         for image in form.images.data or []:
             if image is None or not image.filename:
                 continue
-            image_path = save_uploaded_file(image, f"activity-{activity.id}")
+            image_path = save_uploaded_file(
+                image,
+                f"activity-{activity.id}",
+                image_kind="activity_image",
+                subfolder=f"nodes/{activity.node_id}",
+            )
             if not image_path:
                 continue
             db.session.add(
@@ -1255,8 +1348,13 @@ def delete_activity(activity_id: int):
     node_id = activity.node_id
     form = DeleteForm()
     if form.validate_on_submit():
+        image_paths = _collect_activity_image_paths(activity) if form.remove_files.data else set()
         db.session.delete(activity)
         db.session.commit()
+        if image_paths:
+            removed_count = remove_unreferenced_uploads(_upload_directory(), image_paths)
+            if removed_count:
+                flash(f"Removed {removed_count} uploaded file(s).", "success")
         flash("Activity deleted.", "success")
     return redirect(url_for("main.node_detail", node_id=node_id))
 
@@ -1313,6 +1411,7 @@ def delete_photo(photo_id: int):
     node = photo.node
     form = DeleteForm()
     if form.validate_on_submit():
+        image_paths = {photo.image_path} if form.remove_files.data and photo.image_path else set()
         was_default = photo.is_default
         db.session.delete(photo)
         if was_default:
@@ -1325,6 +1424,10 @@ def delete_photo(photo_id: int):
                 )[0]
                 _set_default_photo(node, remaining_default)
         db.session.commit()
+        if image_paths:
+            removed_count = remove_unreferenced_uploads(_upload_directory(), image_paths)
+            if removed_count:
+                flash(f"Removed {removed_count} uploaded file(s).", "success")
         flash("Photo deleted.", "success")
     return redirect(url_for("main.node_detail", node_id=node_id))
 
@@ -1422,7 +1525,7 @@ def edit_link(link_id: int):
     )
 
 
-@bp.route("/nodes/<int:node_id>/entities", methods=["POST"])
+@bp.route("/nodes/<int:node_id>/entities", methods=["GET", "POST"])
 @login_required
 @permission_required("manage_content")
 def add_entity(node_id: int):
@@ -1433,6 +1536,17 @@ def add_entity(node_id: int):
     """
     node = GardenNode.query.get_or_404(node_id)
     form = _home_assistant_entity_form()
+
+    if request.method == "GET":
+        current_image_path = node.map_view_image
+        return render_template(
+            "entity_form.html",
+            form=form,
+            entity=None,
+            node=node,
+            current_image_path=current_image_path,
+            settings=_settings(),
+        )
 
     if form.validate_on_submit():
         catalog_entry = db.session.get(HomeAssistantEntityCatalog, form.discovered_entity.data)
@@ -1546,9 +1660,7 @@ def edit_entity(entity_id: int):
         flash("Home Assistant entity updated.", "success")
         return redirect(url_for("main.edit_node", node_id=entity.node_id))
 
-    current_image_path = (
-        entity.node.display_image
-    )
+    current_image_path = entity.node.map_view_image
     return render_template(
         "entity_form.html",
         form=form,
@@ -1612,8 +1724,8 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
         node: Node that owns the irrigation zone.
         zone: Existing irrigation zone being edited, or None when creating one.
     """
-    if not node.display_image:
-        flash("Add a default image to this node before placing irrigation zones.", "warning")
+    if not node.map_view_image:
+        flash("Add a map image to this node before placing irrigation zones.", "warning")
         return redirect(url_for("main.edit_node", node_id=node.id))
 
     form = _irrigation_zone_form(zone)
@@ -1666,7 +1778,7 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
                 form=form,
                 zone=zone,
                 node=node,
-                current_image_path=node.display_image,
+                current_image_path=node.map_view_image,
                 irrigation_zones=node.irrigation_zones,
                 settings=_settings(),
                 delete_form=DeleteForm(),
@@ -1716,7 +1828,7 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
         form=form,
         zone=zone,
         node=node,
-        current_image_path=node.display_image,
+        current_image_path=node.map_view_image,
         irrigation_zones=node.irrigation_zones,
         settings=_settings(),
         delete_form=DeleteForm(),

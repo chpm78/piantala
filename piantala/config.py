@@ -18,3 +18,6 @@ class Config:
         str(BASE_DIR / "piantala" / "static" / "uploads"),
     )
     GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    IMAGE_MAX_DIMENSION = int(os.getenv("IMAGE_MAX_DIMENSION", "2560"))
+    IMAGE_JPEG_QUALITY = int(os.getenv("IMAGE_JPEG_QUALITY", "85"))
+    IMAGE_REPAIR_SIZE_THRESHOLD = int(os.getenv("IMAGE_REPAIR_SIZE_THRESHOLD", str(1_500_000)))

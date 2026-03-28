@@ -73,6 +73,15 @@
 
         <article class="card">
           <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.storage") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.storage') }}">{{ tr("admin.section.storage") }}</a></h3>
+            <p>{{ tr("admin.card.storage") }}</p>
+            <a class="text-link" href="{{ url_for('admin.storage') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
             <p class="eyebrow">{{ tr("admin.section.translations") }}</p>
             <h3><a class="card-title-link" href="{{ url_for('admin.translations') }}">{{ tr("admin.section.translations") }}</a></h3>
             <p>{{ tr("admin.card.translations") }}</p>

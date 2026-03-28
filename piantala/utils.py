@@ -9,6 +9,8 @@ from flask_login import current_user
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
+from .media import max_dimension_for_kind, optimize_image_file
+
 
 LEVEL_TYPE_DEFAULTS = {
     1: "area",
@@ -18,24 +20,44 @@ LEVEL_TYPE_DEFAULTS = {
 }
 
 
-def save_uploaded_file(file_storage: FileStorage | None, prefix: str) -> str | None:
+def save_uploaded_file(
+    file_storage: FileStorage | None,
+    prefix: str,
+    *,
+    image_kind: str = "node_photo",
+    subfolder: str | None = None,
+) -> str | None:
     """Store an uploaded file in the configured upload directory.
 
     Parameters:
         file_storage: Uploaded file object provided by Flask/Werkzeug.
         prefix: Prefix added to the generated unique file name.
+        image_kind: Logical upload category used to choose compression settings.
+        subfolder: Optional relative upload subfolder such as `nodes/12`.
     """
     if file_storage is None or not file_storage.filename:
         return None
+
+    from .models import GardenSettings
 
     filename = secure_filename(file_storage.filename)
     extension = Path(filename).suffix.lower()
     unique_name = f"{prefix}-{uuid4().hex}{extension}"
     upload_dir = Path(current_app.config["UPLOAD_FOLDER"])
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    destination = upload_dir / unique_name
+    default_subfolder = "site" if image_kind == "homepage_map" else "misc"
+    destination_dir = upload_dir / Path(subfolder or default_subfolder)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / unique_name
     file_storage.save(destination)
-    return f"uploads/{unique_name}"
+    settings = GardenSettings.get_or_create()
+    optimize_image_file(
+        destination,
+        max_dimension=max_dimension_for_kind(settings, image_kind),
+        jpeg_quality=current_app.config["IMAGE_JPEG_QUALITY"],
+        size_threshold=0,
+        force=True,
+    )
+    return f"uploads/{destination.relative_to(upload_dir).as_posix()}"
 
 
 def permission_required(permission_code: str):

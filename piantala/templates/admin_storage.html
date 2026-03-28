@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.storage") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.storage.heading") }}</p>
+        <h1>{{ tr("admin.storage.title") }}</h1>
+        <p>{{ tr("admin.storage.description") }}</p>
+      </div>
+    </div>
+
+    {% if not image_tools_available %}
+      <div class="empty-state">
+        <h3>{{ tr("admin.storage.image_tools_missing") }}</h3>
+        <p>{{ tr("admin.storage.image_tools_missing_text") }}</p>
+      </div>
+    {% endif %}
+
+    <div class="card-grid">
+      <article class="card">
+        <div class="card-body">
+          <p class="eyebrow">{{ tr("admin.storage.database") }}</p>
+          <h3>{{ db_size_label }}</h3>
+          {% if db_path %}
+            <p><strong>{{ tr("admin.storage.path") }}:</strong> <code>{{ db_path }}</code></p>
+          {% else %}
+            <p>{{ tr("admin.storage.sqlite_only") }}</p>
+          {% endif %}
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-body">
+          <p class="eyebrow">{{ tr("admin.storage.uploads") }}</p>
+          <h3>{{ upload_size_label }}</h3>
+          <p><strong>{{ tr("admin.storage.files") }}:</strong> {{ upload_file_count }}</p>
+          <p><strong>{{ tr("admin.storage.path") }}:</strong> <code>{{ upload_dir }}</code></p>
+          <p><strong>{{ tr("admin.storage.image_directory") }}:</strong> <code>{{ image_dir }}</code></p>
+          <a class="text-link" href="{{ url_for('admin.upload_inventory') }}">{{ tr("admin.storage.open_upload_inventory") }}</a>
+        </div>
+      </article>
+    </div>
+  </section>
+{% endblock %}
