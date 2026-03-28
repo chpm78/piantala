@@ -20,6 +20,7 @@
       <a class="{% if request.endpoint in ['admin.users', 'admin.create_user', 'admin.edit_user'] %}is-active{% endif %}" href="{{ url_for('admin.users') }}">{{ tr("admin.section.users") }}</a>
       <a class="{% if request.endpoint in ['admin.home_assistant_settings', 'admin.home_assistant_test', 'admin.home_assistant_sync'] %}is-active{% endif %}" href="{{ url_for('admin.home_assistant_settings') }}">{{ tr("admin.section.home_assistant") }}</a>
       <a class="{% if request.endpoint in ['admin.storage', 'admin.upload_inventory'] %}is-active{% endif %}" href="{{ url_for('admin.storage') }}">{{ tr("admin.section.storage") }}</a>
+      <a class="{% if request.endpoint == 'admin.environment' %}is-active{% endif %}" href="{{ url_for('admin.environment') }}">{{ tr("admin.section.environment") }}</a>
       <a class="{% if request.endpoint == 'admin.translations' %}is-active{% endif %}" href="{{ url_for('admin.translations') }}">{{ tr("admin.section.translations") }}</a>
     {% endif %}
   </nav>

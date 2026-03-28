@@ -159,9 +159,30 @@ img {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
   text-decoration: none;
   font-size: 1.4rem;
   font-weight: 700;
+}
+
+.brand-icon {
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: 0 0 auto;
+}
+
+.brand-version {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .nav-links,
@@ -814,12 +835,38 @@ img {
 }
 
 .cultivation-manager-point {
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: move;
+  z-index: 5;
 }
 
 .cultivation-manager-point.is-selected {
   opacity: 1;
   filter: drop-shadow(0 0 0.45rem rgba(0, 0, 0, 0.22));
+}
+
+.cultivation-manager-delete-popover {
+  position: absolute;
+  z-index: 7;
+  width: 2rem;
+  height: 2rem;
+  margin-left: 0.9rem;
+  margin-top: -2.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: #b73333;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.cultivation-manager-delete-popover:hover,
+.cultivation-manager-delete-popover:focus-visible {
+  background: #942727;
 }
 
 .cultivation-manager-form {
@@ -865,6 +912,7 @@ img {
   position: absolute;
   inset: 0;
   z-index: 4;
+  pointer-events: none;
 }
 
 .overlay-editor-point {

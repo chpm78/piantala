@@ -82,6 +82,15 @@
 
         <article class="card">
           <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.environment") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.environment') }}">{{ tr("admin.section.environment") }}</a></h3>
+            <p>{{ tr("admin.card.environment") }}</p>
+            <a class="text-link" href="{{ url_for('admin.environment') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
             <p class="eyebrow">{{ tr("admin.section.translations") }}</p>
             <h3><a class="card-title-link" href="{{ url_for('admin.translations') }}">{{ tr("admin.section.translations") }}</a></h3>
             <p>{{ tr("admin.card.translations") }}</p>

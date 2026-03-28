@@ -658,6 +658,7 @@ function createManagedPointMarkerElement(child, position, index, selected) {
   button.style.top = `${formatPercent(position.y)}%`;
   button.style.setProperty("--hotspot-color", child.marker_color || "#f28c28");
   button.dataset.pointIndex = String(index);
+  button.dataset.childId = String(child.id || "");
   button.setAttribute("aria-label", `${child.title || "Cultivation"} point ${index + 1}`);
 
   if (child.marker_icon) {
@@ -698,6 +699,14 @@ function initCultivationPositionManagers() {
     const selectedTitle = container.querySelector("[data-cultivation-selected-title='true']");
     const helpText = container.querySelector("[data-cultivation-help='true']");
     const listButtons = Array.from(container.querySelectorAll("[data-cultivation-select='true']"));
+    const deletePopover = document.createElement("button");
+    deletePopover.type = "button";
+    deletePopover.className = "cultivation-manager-delete-popover";
+    deletePopover.innerHTML = '<span class="mdi mdi-trash-can-outline" aria-hidden="true"></span>';
+    deletePopover.hidden = true;
+    deletePopover.title = pointPanel?.dataset.removeLabel || "Delete";
+    deletePopover.setAttribute("aria-label", pointPanel?.dataset.removeLabel || "Delete");
+    pointLayer.appendChild(deletePopover);
 
     let children = [];
     try {
@@ -714,9 +723,23 @@ function initCultivationPositionManagers() {
       selectedChildId = Number.parseInt(children[0]?.id, 10);
     }
     let detachActiveDragListeners = null;
+    let deletePopoverIndex = null;
+    let suppressContainerClick = false;
 
     const findChild = () =>
       children.find((child) => Number.parseInt(child.id, 10) === Number.parseInt(selectedChildId, 10)) || children[0];
+
+    const hideDeletePopover = () => {
+      deletePopover.hidden = true;
+      deletePopoverIndex = null;
+    };
+
+    const showDeletePopover = (index, position) => {
+      deletePopoverIndex = index;
+      deletePopover.hidden = false;
+      deletePopover.style.left = `${formatPercent(position.x)}%`;
+      deletePopover.style.top = `${formatPercent(position.y)}%`;
+    };
 
     const writeState = () => {
       if (stateInput) {
@@ -766,6 +789,7 @@ function initCultivationPositionManagers() {
         if (child.overlay_shape === "area" && Array.isArray(child.polygon) && child.polygon.length === 4) {
           const overlay = document.createElement("div");
           overlay.className = "cultivation-manager-area";
+          overlay.dataset.cultivationChildId = String(child.id || "");
           if (isSelected) {
             overlay.classList.add("is-selected");
           }
@@ -781,7 +805,6 @@ function initCultivationPositionManagers() {
         (Array.isArray(child.points) ? child.points : []).forEach((position, index) => {
           const marker = createManagedPointMarkerElement(child, position, index, isSelected);
           marker.tabIndex = -1;
-          marker.disabled = true;
           staticLayer.appendChild(marker);
         });
       });
@@ -794,6 +817,7 @@ function initCultivationPositionManagers() {
       if (!current) {
         editorLayer.hidden = true;
         pointLayer.hidden = true;
+        hideDeletePopover();
         if (pointList) {
           pointList.innerHTML = "";
         }
@@ -803,7 +827,9 @@ function initCultivationPositionManagers() {
       if (current.overlay_shape === "area") {
         const polygonPoints = Array.isArray(current.polygon) ? current.polygon : [];
         pointLayer.innerHTML = "";
+        pointLayer.appendChild(deletePopover);
         pointLayer.hidden = true;
+        hideDeletePopover();
         if (pointPanel) {
           pointPanel.hidden = true;
         }
@@ -830,6 +856,8 @@ function initCultivationPositionManagers() {
       });
       pointLayer.hidden = false;
       pointLayer.innerHTML = "";
+      pointLayer.appendChild(deletePopover);
+      hideDeletePopover();
       if (pointPanel) {
         pointPanel.hidden = false;
       }
@@ -852,6 +880,33 @@ function initCultivationPositionManagers() {
         }
       });
       writeState();
+    };
+
+    const startPointDragForChild = (pointerId, childId, pointIndex) => {
+      const targetChildId = Number.parseInt(childId, 10);
+      if (!Number.isFinite(targetChildId) || pointIndex < 0) {
+        return false;
+      }
+
+      if (Number.parseInt(selectedChildId, 10) !== targetChildId) {
+        selectedChildId = targetChildId;
+        renderEditor();
+      }
+
+      const current = findChild();
+      if (!current || current.overlay_shape === "area" || !Array.isArray(current.points) || !current.points[pointIndex]) {
+        return false;
+      }
+
+      hideDeletePopover();
+      startDrag(pointerId, (position) => {
+        if (!Array.isArray(current.points) || !current.points[pointIndex]) {
+          return;
+        }
+        current.points[pointIndex] = position;
+        renderEditor();
+      });
+      return true;
     };
 
     const startDrag = (pointerId, onMove) => {
@@ -892,6 +947,11 @@ function initCultivationPositionManagers() {
     };
 
     container.addEventListener("click", (event) => {
+      if (suppressContainerClick) {
+        suppressContainerClick = false;
+        return;
+      }
+
       const selectionButton = event.target.closest("[data-cultivation-select='true']");
       if (selectionButton) {
         selectedChildId = Number.parseInt(selectionButton.dataset.childId || "", 10);
@@ -910,7 +970,48 @@ function initCultivationPositionManagers() {
         return;
       }
 
+      const markerButton = event.target.closest("[data-point-index][data-child-id]");
+      if (markerButton) {
+        const clickedChildId = Number.parseInt(markerButton.dataset.childId || "", 10);
+        if (Number.isFinite(clickedChildId) && clickedChildId !== Number.parseInt(selectedChildId, 10)) {
+          selectedChildId = clickedChildId;
+          hideDeletePopover();
+          renderEditor();
+        }
+        return;
+      }
+
+      const areaOverlay = event.target.closest("[data-cultivation-child-id]");
+      if (areaOverlay) {
+        const clickedChildId = Number.parseInt(areaOverlay.dataset.cultivationChildId || "", 10);
+        if (Number.isFinite(clickedChildId) && clickedChildId !== Number.parseInt(selectedChildId, 10)) {
+          selectedChildId = clickedChildId;
+          hideDeletePopover();
+          renderEditor();
+        }
+        return;
+      }
+
+      if (event.target === deletePopover || event.target.closest(".cultivation-manager-delete-popover")) {
+        const current = findChild();
+        if (!current || current.overlay_shape === "area" || deletePopoverIndex === null) {
+          hideDeletePopover();
+          return;
+        }
+        current.points.splice(deletePopoverIndex, 1);
+        renderEditor();
+        return;
+      }
+
       if (event.target.closest("button, a, input, textarea, select, label")) {
+        if (!event.target.closest(".cultivation-manager-delete-popover")) {
+          hideDeletePopover();
+        }
+        return;
+      }
+
+      if (!deletePopover.hidden) {
+        hideDeletePopover();
         return;
       }
 
@@ -927,8 +1028,26 @@ function initCultivationPositionManagers() {
       renderEditor();
     });
 
+    container.addEventListener("contextmenu", (event) => {
+      const pointButton = event.target.closest("[data-point-index]");
+      const current = findChild();
+      if (!pointButton || !current || current.overlay_shape === "area") {
+        hideDeletePopover();
+        return;
+      }
+      const pointIndex = Number.parseInt(pointButton.dataset.pointIndex || "-1", 10);
+      const pointPosition = Array.isArray(current.points) ? current.points[pointIndex] : null;
+      if (pointIndex < 0 || !pointPosition) {
+        hideDeletePopover();
+        return;
+      }
+      showDeletePopover(pointIndex, pointPosition);
+      event.preventDefault();
+    });
+
     handles.forEach((handle) => {
       handle.addEventListener("pointerdown", (event) => {
+        hideDeletePopover();
         const current = findChild();
         const handleIndex = Number.parseInt(handle.dataset.cultivationEditorHandle || "-1", 10);
         if (!current || current.overlay_shape !== "area" || handleIndex < 0) {
@@ -955,6 +1074,7 @@ function initCultivationPositionManagers() {
       if (!pointButton || !current || current.overlay_shape === "area") {
         return;
       }
+      hideDeletePopover();
       const pointIndex = Number.parseInt(pointButton.dataset.pointIndex || "-1", 10);
       if (pointIndex < 0) {
         return;
@@ -972,8 +1092,36 @@ function initCultivationPositionManagers() {
       event.preventDefault();
     });
 
+    staticLayer.addEventListener("pointerdown", (event) => {
+      const markerButton = event.target.closest("[data-point-index][data-child-id]");
+      if (!markerButton) {
+        return;
+      }
+
+      const childId = markerButton.dataset.childId || "";
+      const pointIndex = Number.parseInt(markerButton.dataset.pointIndex || "-1", 10);
+      if (pointIndex < 0) {
+        return;
+      }
+
+      suppressContainerClick = true;
+      if (typeof markerButton.setPointerCapture === "function") {
+        markerButton.setPointerCapture(event.pointerId);
+      }
+      if (startPointDragForChild(event.pointerId, childId, pointIndex)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    });
+
     container.addEventListener("dragstart", (event) => {
       event.preventDefault();
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!container.contains(event.target)) {
+        hideDeletePopover();
+      }
     });
 
     renderEditor();
@@ -1729,6 +1877,7 @@ function initPhotoImportEditor() {
     };
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+    const existingImageSrc = form.dataset.photoImportExistingSrc || "";
 
     const setPreviewDirty = () => {
       state.previewDirty = true;
@@ -1806,11 +1955,13 @@ function initPhotoImportEditor() {
       line.style.transform = `rotate(${angle}deg)`;
     };
 
-    const resetEditor = () => {
+    const resetEditor = (markDirty = true) => {
       state.rect = { x: 12, y: 12, width: 76, height: 70 };
       syncReferenceLineToCrop();
       render();
-      setPreviewDirty();
+      if (markDirty) {
+        setPreviewDirty();
+      }
     };
 
     const loadSelectedFile = () => {
@@ -1829,13 +1980,52 @@ function initPhotoImportEditor() {
         URL.revokeObjectURL(state.objectUrl);
       }
       state.objectUrl = URL.createObjectURL(file);
+      state.imageLoaded = false;
+      const handleImageLoaded = () => {
+        state.imageLoaded = true;
+        resetEditor(true);
+      };
+      stageImage.onload = handleImageLoaded;
+      stageImage.onerror = () => {
+        state.imageLoaded = false;
+        cropBox.hidden = true;
+        line.hidden = true;
+        emptyLabel.hidden = false;
+        emptyLabel.textContent = "Image preview could not be loaded.";
+      };
       stageImage.src = state.objectUrl;
       stageImage.hidden = false;
       emptyLabel.hidden = true;
+      if (stageImage.complete && stageImage.naturalWidth) {
+        handleImageLoaded();
+      }
+    };
+
+    const loadExistingImage = () => {
+      if (!existingImageSrc) {
+        return;
+      }
+      state.imageLoaded = false;
       stageImage.onload = () => {
         state.imageLoaded = true;
-        resetEditor();
+        resetEditor(false);
+        submitButton.disabled = false;
+        statusLabel.textContent = previewReadyText;
       };
+      stageImage.onerror = () => {
+        state.imageLoaded = false;
+        cropBox.hidden = true;
+        line.hidden = true;
+      };
+      stageImage.src = existingImageSrc;
+      stageImage.hidden = false;
+      emptyLabel.hidden = true;
+      if (stageImage.complete && stageImage.naturalWidth) {
+        state.imageLoaded = true;
+        resetEditor(false);
+        submitButton.disabled = false;
+        statusLabel.textContent = previewReadyText;
+      }
     };
 
     const trimCanvas = (canvas) => {
@@ -2203,6 +2393,8 @@ function initPhotoImportEditor() {
     fileInput.addEventListener("change", () => {
       loadSelectedFile();
     });
+
+    loadExistingImage();
 
     if (!fileInput.files?.length && !fileInput.required) {
       submitButton.disabled = false;

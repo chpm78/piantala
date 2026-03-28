@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.environment") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.section.environment") }}</p>
+        <h1>{{ tr("admin.environment.title") }}</h1>
+        <p>{{ tr("admin.environment.description") }}</p>
+      </div>
+    </div>
+
+    <div class="card-grid">
+      <article class="card">
+        <div class="card-body">
+          <p class="eyebrow">{{ tr("admin.environment.runtime") }}</p>
+          <h3>{{ tr("admin.environment.runtime") }}</h3>
+          <p><strong>Piantala:</strong> v{{ app_version }}</p>
+          <p><strong>Python:</strong> {{ python_version }}</p>
+          <p><strong>pip:</strong> {{ pip_version }}</p>
+          <p><strong>{{ tr("admin.environment.server_software") }}:</strong> {{ server_software }}</p>
+          <p><strong>{{ tr("admin.environment.platform") }}:</strong> {{ platform_label }}</p>
+          <p><strong>{{ tr("admin.environment.docker") }}:</strong> {{ tr("node.yes") if is_docker else tr("node.no") }}</p>
+          <p><strong>{{ tr("admin.environment.python_executable") }}:</strong> {{ python_executable }}</p>
+          <p><strong>{{ tr("admin.environment.install_root") }}:</strong> {{ install_root }}</p>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-body">
+          <p class="eyebrow">{{ tr("admin.environment.disk") }}</p>
+          <h3>{{ tr("admin.environment.disk") }}</h3>
+          <p><strong>{{ tr("admin.environment.disk_total") }}:</strong> {{ disk_total_label }}</p>
+          <p><strong>{{ tr("admin.environment.disk_used") }}:</strong> {{ disk_used_label }}</p>
+          <p><strong>{{ tr("admin.environment.disk_free") }}:</strong> {{ disk_free_label }}</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>{{ tr("admin.environment.key_packages") }}</h2>
+        <p>{{ tr("admin.environment.key_packages_text") }}</p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>{{ tr("admin.environment.package_name") }}</th>
+            <th>{{ tr("admin.environment.package_version") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for package in package_rows %}
+            <tr>
+              <td>{{ package.name }}</td>
+              <td>{{ package.version }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>{{ tr("admin.environment.installed_packages") }}</h2>
+        <p>{{ tr("admin.environment.installed_packages_text") }}</p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>{{ tr("admin.environment.package_name") }}</th>
+            <th>{{ tr("admin.environment.package_version") }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for package in installed_packages %}
+            <tr>
+              <td>{{ package.name }}</td>
+              <td>{{ package.version }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

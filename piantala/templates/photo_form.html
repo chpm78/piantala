@@ -24,7 +24,13 @@
       <img src="{{ url_for('static', filename=photo.image_path) }}" alt="{{ photo.title }}">
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="form-grid" data-photo-import-editor="true">
+    <form
+      method="post"
+      enctype="multipart/form-data"
+      class="form-grid"
+      data-photo-import-editor="true"
+      data-photo-import-existing-src="{{ url_for('static', filename=photo.image_path) }}"
+    >
       {{ form.hidden_tag() }}
 
       <label class="full-width">

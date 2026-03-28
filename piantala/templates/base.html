@@ -23,7 +23,11 @@
   <body class="theme-{{ app_theme }} font-{{ app_font }}">
     <header class="site-header">
       <div class="shell nav-row">
-        <a class="brand" href="{{ url_for('main.index') }}">{{ site_name }}</a>
+        <a class="brand" href="{{ url_for('main.index') }}">
+          <img class="brand-icon" src="{{ url_for('static', filename='favicon.svg') }}" alt="">
+          <span>{{ site_name }}</span>
+          <span class="brand-version">v{{ app_version }}</span>
+        </a>
         {% if current_user.is_authenticated %}
           <nav class="nav-links">
             <a href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>

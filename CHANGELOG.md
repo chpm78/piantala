@@ -4,6 +4,21 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.3.1] - Unreleased
+
+### Added
+- Admin runtime visibility now includes an Environment page with server, Python, pip, package, Docker, and disk information.
+- The top navigation now shows the Piantala icon and the current application version.
+- The cultivation bulk-position editor now supports right-click deletion for existing point markers.
+
+### Changed
+- The application version shown in the UI now follows the source tree version from `pyproject.toml`, avoiding stale installed-package metadata.
+- Existing photo and node-image edit screens now reuse the crop/rotate preview editor with the already saved image preloaded.
+
+### Fixed
+- Existing cultivation markers in the bulk position editor can now be dragged directly instead of being recreated manually.
+- The image preview editor initializes more reliably when loading already-saved images or newly selected files.
+
 ## [0.3.0] - 2026-03-28
 
 ### Added

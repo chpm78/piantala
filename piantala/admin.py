@@ -1,5 +1,9 @@
 from collections import defaultdict
+from importlib.metadata import PackageNotFoundError, distributions, version as package_version
 from pathlib import Path
+import platform
+import shutil
+import sys
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -107,6 +111,18 @@ def _upload_directory_size(upload_dir: Path) -> int:
             except OSError:
                 continue
     return total_size
+
+
+def _runtime_package_version(distribution_name: str) -> str:
+    """Return the installed version for one Python distribution name.
+
+    Parameters:
+        distribution_name: Distribution name as registered in Python metadata.
+    """
+    try:
+        return package_version(distribution_name)
+    except PackageNotFoundError:
+        return "not installed"
 
 
 def _image_dimensions(file_path: Path) -> str:
@@ -361,6 +377,65 @@ def storage():
         upload_size_label=_format_bytes(upload_size_bytes),
         upload_file_count=upload_file_count,
         image_dir=str(upload_dir),
+    )
+
+
+@bp.route("/environment")
+@login_required
+@permission_required("manage_users")
+def environment():
+    """Show runtime, package, and filesystem diagnostics for the current server."""
+    install_root = Path(current_app.root_path).resolve().parent
+    disk_usage = shutil.disk_usage(install_root)
+    request_server_software = request.environ.get("SERVER_SOFTWARE") or "unknown"
+    known_packages = [
+        "piantala",
+        "Flask",
+        "Flask-Login",
+        "Flask-SQLAlchemy",
+        "Flask-WTF",
+        "SQLAlchemy",
+        "Pillow",
+        "gunicorn",
+        "Werkzeug",
+        "python-dotenv",
+    ]
+    package_rows = [
+        {
+            "name": package_name,
+            "version": _runtime_package_version(package_name),
+        }
+        for package_name in known_packages
+    ]
+    installed_packages = sorted(
+        [
+            {
+                "name": distribution.metadata.get("Name") or str(distribution),
+                "version": distribution.version,
+            }
+            for distribution in distributions()
+        ],
+        key=lambda item: item["name"].lower(),
+    )
+
+    return render_template(
+        "admin_environment.html",
+        settings=GardenSettings.get_or_create(),
+        install_root=str(install_root),
+        is_docker=Path("/.dockerenv").exists(),
+        python_version=sys.version.split()[0],
+        python_executable=sys.executable,
+        pip_version=_runtime_package_version("pip"),
+        platform_label=platform.platform(),
+        server_software=request_server_software,
+        package_rows=package_rows,
+        installed_packages=installed_packages,
+        disk_total_label=_format_bytes(disk_usage.total),
+        disk_used_label=_format_bytes(disk_usage.used),
+        disk_free_label=_format_bytes(disk_usage.free),
+        disk_total_bytes=disk_usage.total,
+        disk_used_bytes=disk_usage.used,
+        disk_free_bytes=disk_usage.free,
     )
 
 

@@ -1,4 +1,6 @@
 from pathlib import Path
+import tomllib
+from importlib.metadata import PackageNotFoundError, version as package_version
 
 import click
 from dotenv import load_dotenv
@@ -21,6 +23,28 @@ from .models import (
     sync_schema,
 )
 from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
+
+
+def _project_version() -> str:
+    """Return the current Piantala version declared by the source tree.
+
+    The web UI should reflect the version of the checked-out project, even when
+    the installed package metadata is stale in an existing virtualenv.
+    """
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    try:
+        with pyproject_path.open("rb") as pyproject_file:
+            project_data = tomllib.load(pyproject_file)
+        version = project_data.get("project", {}).get("version")
+        if isinstance(version, str) and version.strip():
+            return version.strip()
+    except (FileNotFoundError, tomllib.TOMLDecodeError, OSError):
+        pass
+
+    try:
+        return package_version("piantala")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def _move_upload_if_needed(upload_dir: Path, current_path: str | None, target_path: str) -> str:
@@ -247,6 +271,7 @@ def create_app() -> Flask:
     def inject_globals() -> dict[str, str | bool]:
         """Expose commonly used settings and translation helpers to templates."""
         site_name = "Piantala"
+        app_version = _project_version()
         load_leaflet = False
         app_theme = "earth"
         app_font = "classic_serif"
@@ -291,6 +316,7 @@ def create_app() -> Flask:
 
         return {
             "site_name": site_name,
+            "app_version": app_version,
             "google_maps_api_key": app.config["GOOGLE_MAPS_API_KEY"],
             "google_maps_enabled": bool(app.config["GOOGLE_MAPS_API_KEY"]),
             "load_leaflet": load_leaflet,
