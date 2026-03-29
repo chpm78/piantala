@@ -87,8 +87,8 @@
                   {% endif %}
                 </td>
                 <td data-sort-value="{{ cultivation_type.images|length }}">{{ cultivation_type.images|length }}</td>
-                <td data-sort-value="{{ cultivation_type.nodes|length }}">
-                  <a class="text-link" href="{{ url_for('admin.cultivation_type_usage', cultivation_type_id=cultivation_type.id) }}">{{ cultivation_type.nodes|length }}</a>
+                <td data-sort-value="{{ cultivation_type.site_usage_count }}">
+                  <a class="text-link" href="{{ url_for('admin.cultivation_type_usage', cultivation_type_id=cultivation_type.id) }}">{{ cultivation_type.site_usage_count }}</a>
                 </td>
                 <td class="cultivation-types-audit-cell">
                   {% set item = cultivation_type %}

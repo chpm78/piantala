@@ -39,8 +39,12 @@
         <input type="hidden" name="visible_year" value="{{ parent_selected_year }}">
       {% endif %}
 
-      {% if level >= 3 %}
-        <label class="full-width" data-section-hidden-field="true">
+      <label>
+        <span>{{ tr("node.type_label") }}</span>
+        {{ form.node_type(class_="input") }}
+      </label>
+
+      <label class="full-width" data-section-hidden-field="true" data-cultivation-only-field="true">
           <span>{{ tr("node.cultivation_type") }}</span>
           <select
             name="{{ form.cultivation_type_id.name }}"
@@ -68,7 +72,7 @@
           {% endfor %}
         </label>
 
-        <label class="full-width" data-section-hidden-field="true" data-cultivation-variant-field="true">
+        <label class="full-width" data-section-hidden-field="true" data-cultivation-only-field="true" data-cultivation-variant-field="true">
           <span>{{ tr("node.cultivation_variant") }}</span>
           <select
             name="{{ form.cultivation_type_variant_id.name }}"
@@ -93,7 +97,6 @@
             <small class="field-error">{{ error }}</small>
           {% endfor %}
         </label>
-      {% endif %}
 
       <label>
         <span>{{ tr("node.title_label") }}</span>
@@ -101,11 +104,6 @@
         {% for error in form.title.errors %}
           <small class="field-error">{{ error }}</small>
         {% endfor %}
-      </label>
-
-      <label>
-        <span>{{ tr("node.type_label") }}</span>
-        {{ form.node_type(class_="input") }}
       </label>
 
       <label class="full-width">
@@ -147,21 +145,6 @@
       <label data-section-hidden-field="true">
         <span>{{ tr("node.death_year") }}</span>
         {{ form.death_year(class_="input") }}
-      </label>
-
-      <label>
-        <span>{{ tr("node.image_display_mode") }}</span>
-        {{ form.image_display_mode(class_="input") }}
-      </label>
-
-      <label>
-        <span>{{ tr("node.crop_focus_x") }}</span>
-        {{ form.image_focus_x(class_="input") }}
-      </label>
-
-      <label>
-        <span>{{ tr("node.crop_focus_y") }}</span>
-        {{ form.image_focus_y(class_="input") }}
       </label>
 
       <label>

@@ -728,6 +728,7 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "cultivation_types.view_used_nodes": {"en": "cultivations using this type", "it": "coltivazioni che usano questo tipo"},
     "cultivation_types.no_used_nodes": {"en": "No cultivations use this type yet.", "it": "Nessuna coltivazione usa ancora questo tipo."},
     "cultivation_types.path": {"en": "Path", "it": "Percorso"},
+    "cultivation_types.open_definition": {"en": "Open type definition", "it": "Apri definizione tipo"},
     "cultivation_types.add_image": {"en": "Add picture", "it": "Aggiungi immagine"},
     "cultivation_types.no_images": {"en": "No pictures yet.", "it": "Nessuna immagine disponibile."},
     "cultivation_types.image_title": {"en": "Picture title", "it": "Titolo immagine"},

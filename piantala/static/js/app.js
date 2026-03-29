@@ -51,8 +51,12 @@ function syncNodeTypeFields() {
   }
 
   const hideLifecycleFields = nodeTypeSelect.value === "section";
+  const showCultivationFields = nodeTypeSelect.value === "bed" || nodeTypeSelect.value === "plant";
   document.querySelectorAll("[data-section-hidden-field='true']").forEach((field) => {
     field.hidden = hideLifecycleFields;
+  });
+  document.querySelectorAll("[data-cultivation-only-field='true']").forEach((field) => {
+    field.hidden = !showCultivationFields;
   });
 
   const showAnnualFields = !hideLifecycleFields && lifeCycleSelect?.value === "annual";

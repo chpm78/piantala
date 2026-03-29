@@ -207,6 +207,16 @@ def _normalized_optional_text(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _normalized_optional_key(value: str | None) -> str | None:
+    """Return a trimmed case-insensitive key for cultivation-type matching.
+
+    Parameters:
+        value: Raw text value collected from forms or database rows.
+    """
+    cleaned = _normalized_optional_text(value)
+    return cleaned.casefold() if cleaned else None
+
+
 def _cultivation_type_signature(
     botanical_name: str | None,
     common_name: str | None,
@@ -220,9 +230,9 @@ def _cultivation_type_signature(
         life_cycle: Annual/perennial value, when defined.
     """
     return (
-        _normalized_optional_text(botanical_name),
-        _normalized_optional_text(common_name),
-        _normalized_optional_text(life_cycle),
+        _normalized_optional_key(botanical_name),
+        _normalized_optional_key(common_name),
+        _normalized_optional_key(life_cycle),
     )
 
 
@@ -1312,19 +1322,10 @@ def cultivation_type_usage(cultivation_type_id: int):
         cultivation_type_id: Identifier of the cultivation type being inspected.
     """
     cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
-    cultivation_nodes = sorted(
-        cultivation_type.nodes,
-        key=lambda node: (
-            [crumb.title.casefold() for crumb in node.breadcrumbs()],
-            node.cultivation_year or 0,
-            (node.title or "").casefold(),
-            node.id,
-        ),
-    )
     return render_template(
         "cultivation_type_usage.html",
         cultivation_type=cultivation_type,
-        cultivation_nodes=cultivation_nodes,
+        cultivation_nodes=cultivation_type.site_usage_nodes,
         settings=GardenSettings.get_or_create(),
     )
 

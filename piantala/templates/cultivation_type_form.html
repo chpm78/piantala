@@ -75,7 +75,7 @@
             <h2>{{ tr("cultivation_types.used_count") }}</h2>
             <p>
               <a class="text-link" href="{{ url_for('admin.cultivation_type_usage', cultivation_type_id=cultivation_type.id) }}">
-                {{ cultivation_type.nodes|length }} {{ tr("cultivation_types.view_used_nodes") }}
+                {{ cultivation_type.site_usage_count }} {{ tr("cultivation_types.view_used_nodes") }}
               </a>
             </p>
           </div>

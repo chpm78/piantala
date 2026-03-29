@@ -86,6 +86,16 @@ def _normalize_optional_text(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _normalize_optional_key(value: str | None) -> str | None:
+    """Return a trimmed case-insensitive key or None when empty.
+
+    Parameters:
+        value: Raw text value collected from the database or a form.
+    """
+    cleaned = _normalize_optional_text(value)
+    return cleaned.casefold() if cleaned else None
+
+
 def _most_common_non_empty(values: list[str | int | None]) -> str | int | None:
     """Return the most common non-empty value from a list.
 
@@ -351,6 +361,39 @@ class CultivationType(AuditMixin, db.Model):
     def variants_display(self) -> str:
         """Return cultivation variants joined with line breaks for templates."""
         return "\n".join(self.variants_list)
+
+    @staticmethod
+    def _site_usage_sort_key(node: "GardenNode") -> tuple[object, ...]:
+        """Return a stable key for ordering cultivation-type usage entries.
+
+        Parameters:
+            node: Representative cultivation node for one sitewise lineage.
+        """
+        return (
+            [crumb.title.casefold() for crumb in node.breadcrumbs()],
+            node.effective_cultivation_year or 0,
+            (node.title or "").casefold(),
+            node.id,
+        )
+
+    @property
+    def site_usage_nodes(self) -> list["GardenNode"]:
+        """Return one representative cultivation node per sitewise lineage."""
+        latest_nodes_by_lineage_root: dict[int, GardenNode] = {}
+        for node in self.nodes:
+            lineage_root = node.lineage_root
+            existing = latest_nodes_by_lineage_root.get(lineage_root.id)
+            if existing is None or (
+                (node.effective_cultivation_year or 0, node.created_at, node.id)
+                > (existing.effective_cultivation_year or 0, existing.created_at, existing.id)
+            ):
+                latest_nodes_by_lineage_root[lineage_root.id] = node
+        return sorted(latest_nodes_by_lineage_root.values(), key=self._site_usage_sort_key)
+
+    @property
+    def site_usage_count(self) -> int:
+        """Return how many sitewise cultivation lineages use this type."""
+        return len(self.site_usage_nodes)
 
     @property
     def default_node_title(self) -> str:
@@ -1520,15 +1563,14 @@ def ensure_seed_data() -> None:
             link_type.save_localized_names(names_by_locale, overwrite=False)
 
     cultivation_nodes = GardenNode.query.filter(
-        GardenNode.level >= 3,
         GardenNode.node_type.in_(["bed", "plant", "custom"]),
     ).all()
     cultivation_type_cache: dict[tuple[str | None, str | None, str | None], CultivationType] = {}
     for cultivation_type in CultivationType.query.order_by(CultivationType.id).all():
         cache_key = (
-            _normalize_optional_text(cultivation_type.botanical_name),
-            _normalize_optional_text(cultivation_type.common_name),
-            _normalize_optional_text(cultivation_type.life_cycle),
+            _normalize_optional_key(cultivation_type.botanical_name),
+            _normalize_optional_key(cultivation_type.common_name),
+            _normalize_optional_key(cultivation_type.life_cycle),
         )
         existing_type = cultivation_type_cache.get(cache_key)
         if existing_type is None:
@@ -1582,9 +1624,9 @@ def ensure_seed_data() -> None:
             and _normalize_optional_text(linked_type.variant) is None
         )
         cache_key = (
-            botanical_name,
-            common_name,
-            _normalize_optional_text(node.life_cycle),
+            _normalize_optional_key(botanical_name),
+            _normalize_optional_key(common_name),
+            _normalize_optional_key(node.life_cycle),
         )
         cultivation_type = linked_type
         if cultivation_type is None or needs_legacy_split_repair:

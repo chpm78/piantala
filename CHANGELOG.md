@@ -4,6 +4,20 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.5.2] - 2026-03-29
+
+### Added
+- Cultivation detail pages now link directly to the related cultivation-type definition for quicker admin navigation.
+
+### Changed
+- Node editing now starts with the node type selector, and cultivation type/variant fields are shown only for `bed` and `plant` nodes instead of being inferred mainly from depth.
+- The node form no longer shows the old image display mode and crop-focus fields, while keeping manual sort order available.
+
+### Fixed
+- Cultivation-type usage counts are now calculated sitewise, so yearly clone lineages no longer inflate the total.
+- Legacy cultivation-type matching and startup backfill are now case-insensitive, fixing duplicate-type splits such as `Prunus Cerasifera` vs `Prunus cerasifera`.
+- Cultivations placed directly under higher-level nodes are now included in cultivation-type backfill and usage tracking.
+
 ## [0.5.1] - 2026-03-29
 
 ### Added

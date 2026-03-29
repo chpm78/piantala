@@ -289,13 +289,18 @@
       </div>
     {% endif %}
 
-    {% if node.cultivation_type and (node.cultivation_type.images or node.cultivation_type.external_url) %}
+    {% if node.cultivation_type and (node.cultivation_type.images or node.cultivation_type.external_url or current_user.has_permission('manage_content')) %}
       <section class="panel">
         <div class="panel-header">
           <div>
             <h2>{{ tr("node.cultivation_type") }}</h2>
             <p>{{ node.cultivation_type.selector_label }}</p>
           </div>
+          {% if current_user.has_permission('manage_content') %}
+            <div class="hero-actions">
+              <a class="button button-secondary button-small" href="{{ url_for('admin.edit_cultivation_type', cultivation_type_id=node.cultivation_type.id) }}">{{ tr("cultivation_types.open_definition") }}</a>
+            </div>
+          {% endif %}
         </div>
 
         {% if node.cultivation_type.external_url %}

@@ -544,9 +544,15 @@ class NodeForm(FlaskForm):
         if not super().validate(extra_validators=extra_validators):
             return False
 
+        is_cultivation_node = self.node_type.data in {"bed", "plant"}
         selected_cultivation_type = self.cultivation_types_by_id.get(self.cultivation_type_id.data or 0)
         selected_variant = self.cultivation_variants_by_id.get(self.cultivation_type_variant_id.data or 0)
-        if selected_cultivation_type is not None:
+        if not is_cultivation_node:
+            self.cultivation_type_id.data = 0
+            self.cultivation_type_variant_id.data = 0
+            selected_cultivation_type = None
+            selected_variant = None
+        elif selected_cultivation_type is not None:
             if not (self.title.data or "").strip():
                 self.title.data = selected_cultivation_type.default_node_title_for_variant(
                     selected_variant.name if selected_variant is not None else None

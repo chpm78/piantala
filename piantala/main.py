@@ -1386,10 +1386,14 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             node = GardenNode(parent=parent, level=level)
             db.session.add(node)
 
+        node.node_type = form.node_type.data
+        is_cultivation_node = node.node_type in {"bed", "plant"}
+        if not is_cultivation_node:
+            selected_cultivation_type = None
+            selected_cultivation_variant = None
         node.title = form.title.data.strip()
         node.cultivation_type = selected_cultivation_type
         node.cultivation_type_variant = selected_cultivation_variant
-        node.node_type = form.node_type.data
         node.summary = form.summary.data.strip() if form.summary.data else None
         node.notes = form.notes.data.strip() if form.notes.data else None
         if node.node_type == "section":
