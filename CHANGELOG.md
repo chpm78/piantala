@@ -4,6 +4,18 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.5.0] - 2026-03-29
+
+### Added
+- Cultivation types now own default marker icons, while variants can override only the marker color used for new cultivations and bulk marker rewrites.
+- The cultivation-type form now includes a live icon preview that reflects both the chosen icon and marker color.
+- The cultivation-position manager now has its own breadcrumb navigation and can filter the visible child cultivations by year.
+
+### Changed
+- The cultivation-types admin table now shows the cultivation icon in the first column and uses the cultivation type, not the variant, as the single source of truth for marker icons.
+- Variant management pages now focus on color defaults only, with icon selection removed to simplify the model.
+- The cultivation-type form keeps save and cancel actions at the bottom of the page and avoids duplicating the variant-management entry point.
+
 ## [0.4.0] - 2026-03-29
 
 ### Added

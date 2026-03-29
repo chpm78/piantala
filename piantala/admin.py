@@ -48,6 +48,82 @@ from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
+MARKER_ICON_CHOICES = [
+    ("", "No icon"),
+    ("mdi-sprout", "mdi-sprout"),
+    ("mdi-flower", "mdi-flower"),
+    ("mdi-flower-tulip", "mdi-flower-tulip"),
+    ("mdi-leaf", "mdi-leaf"),
+    ("mdi-tree", "mdi-tree"),
+    ("mdi-pine-tree", "mdi-pine-tree"),
+    ("mdi-fruit-cherries", "mdi-fruit-cherries"),
+    ("mdi-seed", "mdi-seed"),
+    ("mdi-water", "mdi-water"),
+    ("mdi-weather-sunny", "mdi-weather-sunny"),
+    ("mdi-ladybug", "mdi-ladybug"),
+    ("mdi-bug", "mdi-bug"),
+]
+
+
+def _marker_icon_choices(selected_icon: str | None = None) -> list[tuple[str, str]]:
+    """Return cultivation-type icon choices, preserving an existing custom icon.
+
+    Parameters:
+        selected_icon: Existing saved icon value that should stay selectable.
+    """
+    normalized_selected_icon = _normalized_marker_icon(selected_icon)
+    choices = list(MARKER_ICON_CHOICES)
+    if normalized_selected_icon and all(value != normalized_selected_icon for value, _label in choices):
+        choices.append((normalized_selected_icon, normalized_selected_icon))
+    return choices
+
+
+def _normalized_marker_icon(value: str | None) -> str | None:
+    """Normalize an optional MDI icon to ``mdi-*`` form.
+
+    Parameters:
+        value: Raw icon value coming from a form field.
+    """
+    icon = (value or "").strip()
+    if not icon:
+        return None
+    if not icon.startswith("mdi-"):
+        return f"mdi-{icon}"
+    return icon
+
+
+def _apply_cultivation_type_marker_defaults(cultivation_type: CultivationType) -> int:
+    """Rewrite node marker color/icon from cultivation type and variant defaults.
+
+    Parameters:
+        cultivation_type: Cultivation type whose linked cultivation nodes should be updated.
+    """
+    updated_count = 0
+    for node in cultivation_type.nodes:
+        variant = node.cultivation_type_variant
+        default_color = (
+            variant.effective_default_marker_color
+            if variant is not None
+            else cultivation_type.default_marker_color
+        )
+        default_icon = (
+            variant.effective_default_marker_icon_normalized
+            if variant is not None
+            else cultivation_type.default_marker_icon_normalized
+        )
+
+        changed = False
+        if default_color is not None and node.marker_color_id != default_color.id:
+            node.marker_color = default_color
+            node.hotspot_color = default_color.hex_value
+            changed = True
+        if default_icon is not None and node.marker_icon != default_icon:
+            node.marker_icon = default_icon
+            changed = True
+        if changed:
+            updated_count += 1
+    return updated_count
+
 
 def _format_bytes(size_in_bytes: int | None) -> str:
     """Return a human-readable file size string.
@@ -1106,6 +1182,12 @@ def cultivation_types():
 def create_cultivation_type():
     """Create one cultivation type in a dedicated form page."""
     form = CultivationTypeForm()
+    marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+    form.default_marker_color_id.choices = [(0, "Use node default")] + [
+        (marker_color.id, f"{marker_color.name} ({marker_color.hex_value})")
+        for marker_color in marker_colors
+    ]
+    form.default_marker_icon.choices = _marker_icon_choices()
 
     if form.validate_on_submit():
         signature = _cultivation_type_signature(
@@ -1138,6 +1220,8 @@ def create_cultivation_type():
                     common_name=_normalized_optional_text(form.common_name.data),
                     life_cycle=_normalized_optional_text(form.life_cycle.data),
                     external_url=_normalized_optional_text(form.external_url.data),
+                    default_marker_color_id=form.default_marker_color_id.data or None,
+                    default_marker_icon=_normalized_marker_icon(form.default_marker_icon.data),
                 )
             )
             db.session.commit()
@@ -1149,6 +1233,8 @@ def create_cultivation_type():
         form=form,
         cultivation_type=None,
         delete_form=DeleteForm(),
+        action_form=ActionForm(),
+        marker_colors=marker_colors,
         settings=GardenSettings.get_or_create(),
     )
 
@@ -1164,6 +1250,14 @@ def edit_cultivation_type(cultivation_type_id: int):
     """
     cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
     form = CultivationTypeForm(obj=cultivation_type)
+    marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+    form.default_marker_color_id.choices = [(0, "Use node default")] + [
+        (marker_color.id, f"{marker_color.name} ({marker_color.hex_value})")
+        for marker_color in marker_colors
+    ]
+    form.default_marker_icon.choices = _marker_icon_choices(cultivation_type.default_marker_icon)
+    if request.method == "GET":
+        form.default_marker_color_id.data = cultivation_type.default_marker_color_id or 0
 
     if form.validate_on_submit():
         signature = _cultivation_type_signature(
@@ -1191,6 +1285,8 @@ def edit_cultivation_type(cultivation_type_id: int):
             cultivation_type.common_name = _normalized_optional_text(form.common_name.data)
             cultivation_type.life_cycle = _normalized_optional_text(form.life_cycle.data)
             cultivation_type.external_url = _normalized_optional_text(form.external_url.data)
+            cultivation_type.default_marker_color_id = form.default_marker_color_id.data or None
+            cultivation_type.default_marker_icon = _normalized_marker_icon(form.default_marker_icon.data)
             db.session.commit()
             flash("Cultivation type updated.", "success")
             return redirect(url_for("admin.cultivation_types"))
@@ -1200,8 +1296,28 @@ def edit_cultivation_type(cultivation_type_id: int):
         form=form,
         cultivation_type=cultivation_type,
         delete_form=DeleteForm(),
+        action_form=ActionForm(),
+        marker_colors=marker_colors,
         settings=GardenSettings.get_or_create(),
     )
+
+
+@bp.route("/cultivation-types/<int:cultivation_type_id>/apply-marker-defaults", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def apply_cultivation_type_marker_defaults(cultivation_type_id: int):
+    """Rewrite marker color/icon on cultivations linked to one cultivation type.
+
+    Parameters:
+        cultivation_type_id: Identifier of the cultivation type whose nodes should be updated.
+    """
+    cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
+    form = ActionForm()
+    if form.validate_on_submit():
+        updated_count = _apply_cultivation_type_marker_defaults(cultivation_type)
+        db.session.commit()
+        flash(f"Updated {updated_count} cultivation(s) from cultivation-type marker defaults.", "success")
+    return redirect(url_for("admin.edit_cultivation_type", cultivation_type_id=cultivation_type.id))
 
 
 @bp.route("/cultivation-types/<int:cultivation_type_id>/variants", methods=["GET", "POST"])
@@ -1215,6 +1331,11 @@ def cultivation_type_variants(cultivation_type_id: int):
     """
     cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
     form = CultivationTypeVariantForm()
+    marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+    form.default_marker_color_id.choices = [(0, "Use cultivation type default")] + [
+        (marker_color.id, f"{marker_color.name} ({marker_color.hex_value})")
+        for marker_color in marker_colors
+    ]
 
     if form.validate_on_submit():
         variant_name = (form.name.data or "").strip()
@@ -1234,6 +1355,7 @@ def cultivation_type_variants(cultivation_type_id: int):
                     cultivation_type=cultivation_type,
                     name=variant_name,
                     sort_order=form.sort_order.data or 0,
+                    default_marker_color_id=form.default_marker_color_id.data or None,
                 )
             )
             db.session.commit()
@@ -1245,6 +1367,7 @@ def cultivation_type_variants(cultivation_type_id: int):
         cultivation_type=cultivation_type,
         form=form,
         delete_form=DeleteForm(),
+        marker_colors=marker_colors,
         settings=GardenSettings.get_or_create(),
     )
 
@@ -1261,6 +1384,13 @@ def edit_cultivation_type_variant(variant_id: int):
     variant = CultivationTypeVariant.query.get_or_404(variant_id)
     cultivation_type = variant.cultivation_type
     form = CultivationTypeVariantForm(obj=variant)
+    marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+    form.default_marker_color_id.choices = [(0, "Use cultivation type default")] + [
+        (marker_color.id, f"{marker_color.name} ({marker_color.hex_value})")
+        for marker_color in marker_colors
+    ]
+    if request.method == "GET":
+        form.default_marker_color_id.data = variant.default_marker_color_id or 0
 
     if form.validate_on_submit():
         variant_name = (form.name.data or "").strip()
@@ -1277,6 +1407,7 @@ def edit_cultivation_type_variant(variant_id: int):
         else:
             variant.name = variant_name
             variant.sort_order = form.sort_order.data or 0
+            variant.default_marker_color_id = form.default_marker_color_id.data or None
             db.session.commit()
             flash("Variant updated.", "success")
             return redirect(url_for("admin.cultivation_type_variants", cultivation_type_id=cultivation_type.id))
@@ -1286,6 +1417,7 @@ def edit_cultivation_type_variant(variant_id: int):
         cultivation_type=cultivation_type,
         variant=variant,
         form=form,
+        marker_colors=marker_colors,
         settings=GardenSettings.get_or_create(),
     )
 

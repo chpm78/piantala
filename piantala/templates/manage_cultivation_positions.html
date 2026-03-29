@@ -2,6 +2,16 @@
 
 {% block content %}
   <section class="panel">
+    <div class="breadcrumb-row">
+      <a class="text-link" href="{{ url_for('main.index') }}">{{ tr("nav.map") }}</a>
+      {% for crumb in node.breadcrumbs() %}
+        <span>/</span>
+        <a class="text-link" href="{{ url_for('main.node_detail', node_id=crumb.id) }}">{{ crumb.title }}</a>
+      {% endfor %}
+      <span>/</span>
+      <span>{{ tr("node.manage_cultivation_positions") }}</span>
+    </div>
+
     <div class="panel-header">
       <div>
         <p class="eyebrow">{{ node.level_label }}</p>

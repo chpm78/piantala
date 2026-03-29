@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import json
 from datetime import datetime, UTC
 
@@ -83,6 +84,18 @@ def _normalize_optional_text(value: str | None) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def _most_common_non_empty(values: list[str | int | None]) -> str | int | None:
+    """Return the most common non-empty value from a list.
+
+    Parameters:
+        values: Candidate values collected from existing records.
+    """
+    filtered = [value for value in values if value not in {None, ""}]
+    if not filtered:
+        return None
+    return Counter(filtered).most_common(1)[0][0]
 
 
 def _normalize_variant_lines(value: str | None) -> list[str]:
@@ -291,6 +304,8 @@ class CultivationType(AuditMixin, db.Model):
     variant = db.Column(db.String(160), nullable=True)
     life_cycle = db.Column(db.String(16), nullable=True)
     external_url = db.Column(db.String(500), nullable=True)
+    default_marker_color_id = db.Column(db.Integer, db.ForeignKey("marker_colors.id"), nullable=True)
+    default_marker_icon = db.Column(db.String(64), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -316,6 +331,7 @@ class CultivationType(AuditMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="CultivationTypeImage.sort_order, CultivationTypeImage.id",
     )
+    default_marker_color = db.relationship("MarkerColor", foreign_keys=[default_marker_color_id])
 
     @property
     def selector_label(self) -> str:
@@ -361,6 +377,23 @@ class CultivationType(AuditMixin, db.Model):
             return base_label
         return selected_variant or ""
 
+    @property
+    def default_marker_color_value(self) -> str | None:
+        """Return the configured default marker color hex value, if any."""
+        if self.default_marker_color is not None and self.default_marker_color.hex_value:
+            return self.default_marker_color.hex_value
+        return None
+
+    @property
+    def default_marker_icon_normalized(self) -> str | None:
+        """Return the configured default marker icon in ``mdi-*`` form, if any."""
+        icon = (self.default_marker_icon or "").strip()
+        if not icon:
+            return None
+        if not icon.startswith("mdi-"):
+            return f"mdi-{icon}"
+        return icon
+
 
 class CultivationTypeVariant(AuditMixin, db.Model):
     __tablename__ = "cultivation_type_variants"
@@ -369,6 +402,8 @@ class CultivationTypeVariant(AuditMixin, db.Model):
     cultivation_type_id = db.Column(db.Integer, db.ForeignKey("cultivation_types.id"), nullable=False)
     name = db.Column(db.String(160), nullable=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
+    default_marker_color_id = db.Column(db.Integer, db.ForeignKey("marker_colors.id"), nullable=True)
+    default_marker_icon = db.Column(db.String(64), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -378,11 +413,22 @@ class CultivationTypeVariant(AuditMixin, db.Model):
     )
 
     cultivation_type = db.relationship("CultivationType", back_populates="variants")
+    default_marker_color = db.relationship("MarkerColor", foreign_keys=[default_marker_color_id])
     nodes = db.relationship(
         "GardenNode",
         back_populates="cultivation_type_variant",
         order_by="GardenNode.title",
     )
+
+    @property
+    def effective_default_marker_color(self) -> MarkerColor | None:
+        """Return the variant marker color, falling back to the cultivation type default."""
+        return self.default_marker_color or self.cultivation_type.default_marker_color
+
+    @property
+    def effective_default_marker_icon_normalized(self) -> str | None:
+        """Return the cultivation type marker icon used by this variant."""
+        return self.cultivation_type.default_marker_icon_normalized
 
 
 class GardenNode(AuditMixin, db.Model):
@@ -1570,6 +1616,22 @@ def ensure_seed_data() -> None:
     for cultivation_type in CultivationType.query.order_by(CultivationType.id).all():
         cultivation_type.variant = "\n".join(cultivation_type.variants_list) or None
 
+    for cultivation_type in CultivationType.query.order_by(CultivationType.id).all():
+        candidate_nodes = list(cultivation_type.nodes)
+        if cultivation_type.default_marker_color_id is None:
+            marker_color_id = _most_common_non_empty([node.marker_color_id for node in candidate_nodes])
+            cultivation_type.default_marker_color_id = int(marker_color_id) if marker_color_id is not None else None
+        if _normalize_optional_text(cultivation_type.default_marker_icon) is None:
+            marker_icon = _most_common_non_empty(
+                [_normalize_optional_text(node.marker_icon) for node in candidate_nodes]
+            )
+            cultivation_type.default_marker_icon = str(marker_icon) if marker_icon is not None else None
+
+    for variant in CultivationTypeVariant.query.order_by(CultivationTypeVariant.id).all():
+        if variant.default_marker_color_id is None:
+            marker_color_id = _most_common_non_empty([node.marker_color_id for node in variant.nodes])
+            variant.default_marker_color_id = int(marker_color_id) if marker_color_id is not None else None
+
     for key, localized_values in DEFAULT_TRANSLATIONS.items():
         for locale, text_value in localized_values.items():
             entry = TranslationEntry.query.filter_by(locale=locale, key=key).first()
@@ -2191,6 +2253,14 @@ def sync_schema() -> None:
                 "ALTER TABLE cultivation_types "
                 "ADD COLUMN external_url VARCHAR(500)"
             ),
+            "default_marker_color_id": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN default_marker_color_id INTEGER"
+            ),
+            "default_marker_icon": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN default_marker_icon VARCHAR(64)"
+            ),
             "updated_at": (
                 "ALTER TABLE cultivation_types "
                 "ADD COLUMN updated_at DATETIME"
@@ -2226,6 +2296,14 @@ def sync_schema() -> None:
             "sort_order": (
                 "ALTER TABLE cultivation_type_variants "
                 "ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+            ),
+            "default_marker_color_id": (
+                "ALTER TABLE cultivation_type_variants "
+                "ADD COLUMN default_marker_color_id INTEGER"
+            ),
+            "default_marker_icon": (
+                "ALTER TABLE cultivation_type_variants "
+                "ADD COLUMN default_marker_icon VARCHAR(64)"
             ),
             "updated_at": (
                 "ALTER TABLE cultivation_type_variants "

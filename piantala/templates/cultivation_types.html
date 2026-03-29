@@ -20,6 +20,7 @@
       <div class="table-wrap">
         <table class="data-table cultivation-types-table" data-sortable-table="true" data-default-sort-column="1" data-default-sort-direction="asc">
           <colgroup>
+            <col class="cultivation-types-col-icon">
             <col class="cultivation-types-col-label">
             <col class="cultivation-types-col-botanical">
             <col class="cultivation-types-col-common">
@@ -32,13 +33,14 @@
           </colgroup>
           <thead>
             <tr>
-              <th><button type="button" class="table-sort-button" data-sort-column="0" data-sort-type="text">{{ tr("cultivation_types.selector_label") }}</button></th>
-              <th><button type="button" class="table-sort-button" data-sort-column="1" data-sort-type="text">{{ tr("cultivation_types.botanical_name") }}</button></th>
-              <th><button type="button" class="table-sort-button" data-sort-column="2" data-sort-type="text">{{ tr("cultivation_types.common_name") }}</button></th>
-              <th><button type="button" class="table-sort-button" data-sort-column="3" data-sort-type="text">{{ tr("cultivation_types.variant") }}</button></th>
-              <th><button type="button" class="table-sort-button" data-sort-column="4" data-sort-type="text">{{ tr("node.life_cycle") }}</button></th>
-              <th><button type="button" class="table-sort-button" data-sort-column="5" data-sort-type="number">{{ tr("cultivation_types.images") }}</button></th>
-              <th><button type="button" class="table-sort-button" data-sort-column="6" data-sort-type="number">{{ tr("cultivation_types.used_count") }}</button></th>
+              <th></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="1" data-sort-type="text">{{ tr("cultivation_types.selector_label") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="2" data-sort-type="text">{{ tr("cultivation_types.botanical_name") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="3" data-sort-type="text">{{ tr("cultivation_types.common_name") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="4" data-sort-type="text">{{ tr("cultivation_types.variant") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="5" data-sort-type="text">{{ tr("node.life_cycle") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="6" data-sort-type="number">{{ tr("cultivation_types.images") }}</button></th>
+              <th><button type="button" class="table-sort-button" data-sort-column="7" data-sort-type="number">{{ tr("cultivation_types.used_count") }}</button></th>
               <th>{{ tr("audit.title") }}</th>
               <th></th>
             </tr>
@@ -46,6 +48,15 @@
           <tbody>
             {% for cultivation_type in cultivation_types %}
               <tr>
+                <td data-sort-value="{{ (cultivation_type.default_marker_icon_normalized or '')|lower }}" class="cultivation-types-icon-cell">
+                  {% if cultivation_type.default_marker_icon_normalized %}
+                    <span class="cultivation-type-icon-preview" title="{{ cultivation_type.default_marker_icon_normalized }}">
+                      <span class="mdi {{ cultivation_type.default_marker_icon_normalized }}" aria-hidden="true"></span>
+                    </span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
                 <td data-sort-value="{{ cultivation_type.selector_label|lower }}" class="table-link-cell">
                   <a class="text-link" href="{{ url_for('admin.edit_cultivation_type', cultivation_type_id=cultivation_type.id) }}">{{ cultivation_type.selector_label or "—" }}</a>
                 </td>

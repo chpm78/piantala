@@ -39,6 +39,14 @@
         {{ form.sort_order(class_="input") }}
       </label>
 
+      <label>
+        <span>{{ tr("cultivation_types.default_marker_color") }}</span>
+        {{ form.default_marker_color_id(class_="input") }}
+        {% for error in form.default_marker_color_id.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
       <div class="form-actions">
         {{ form.submit(class_="button", value=tr("common.save")) }}
         <a class="button button-secondary" href="{{ url_for('admin.cultivation_type_variants', cultivation_type_id=cultivation_type.id) }}">{{ tr("common.cancel") }}</a>

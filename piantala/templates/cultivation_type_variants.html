@@ -46,6 +46,11 @@
             {{ form.sort_order(class_="input") }}
           </label>
 
+          <label>
+            <span>{{ tr("cultivation_types.default_marker_color") }}</span>
+            {{ form.default_marker_color_id(class_="input") }}
+          </label>
+
           <div>
             {{ form.submit(class_="button", value=tr("common.save")) }}
           </div>

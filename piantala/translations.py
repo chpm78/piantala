@@ -704,6 +704,16 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
         "it": "Aggiungi una variante per riga per questo tipo di coltivazione.",
     },
     "cultivation_types.external_url": {"en": "External link", "it": "Link esterno"},
+    "cultivation_types.default_marker_color": {"en": "Default marker color", "it": "Colore marcatore predefinito"},
+    "cultivation_types.default_marker_icon": {"en": "Default MDI icon", "it": "Icona MDI predefinita"},
+    "cultivation_types.default_marker_icon_help": {
+        "en": "Optional icon used as the default for new cultivations of this type or variant.",
+        "it": "Icona opzionale usata come predefinita per le nuove coltivazioni di questo tipo o variante.",
+    },
+    "cultivation_types.apply_marker_defaults": {
+        "en": "Rewrite markers on cultivations",
+        "it": "Riscrivi marcatori sulle coltivazioni",
+    },
     "cultivation_types.images": {"en": "Pictures", "it": "Immagini"},
     "cultivation_types.used_count": {"en": "Used by cultivations", "it": "Usato dalle coltivazioni"},
     "cultivation_types.none": {"en": "No cultivation types yet.", "it": "Nessun tipo di coltivazione disponibile."},

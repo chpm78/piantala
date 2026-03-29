@@ -1552,11 +1552,15 @@ body.has-modal-open {
 }
 
 .cultivation-types-table .cultivation-types-col-common {
-  width: 15%;
+  width: 14%;
+}
+
+.cultivation-types-table .cultivation-types-col-icon {
+  width: 5.5rem;
 }
 
 .cultivation-types-table .cultivation-types-col-variants {
-  width: 16%;
+  width: 14%;
 }
 
 .cultivation-types-table .cultivation-types-col-life-cycle {
@@ -1577,6 +1581,7 @@ body.has-modal-open {
 }
 
 .cultivation-types-table .table-link-cell,
+.cultivation-types-table .cultivation-types-icon-cell,
 .cultivation-types-table .cultivation-types-variants-cell,
 .cultivation-types-table .cultivation-types-audit-cell,
 .cultivation-types-table .cultivation-types-actions-cell {
@@ -1600,6 +1605,10 @@ body.has-modal-open {
   text-align: center;
 }
 
+.cultivation-types-table .cultivation-types-icon-cell {
+  text-align: center;
+}
+
 .cultivation-types-table .table-actions {
   align-items: center;
   justify-content: center;
@@ -1615,6 +1624,46 @@ body.has-modal-open {
 
 .cultivation-types-table .multiline-cell {
   align-content: center;
+}
+
+.cultivation-type-icon-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(47, 111, 79, 0.12);
+  color: var(--leaf-700);
+  font-size: 1.15rem;
+}
+
+.input-with-icon-preview {
+  position: relative;
+}
+
+.input-with-preview {
+  padding-right: 3.1rem;
+}
+
+.input-icon-preview {
+  position: absolute;
+  top: 50%;
+  right: 0.8rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  background: rgba(47, 111, 79, 0.12);
+  color: var(--leaf-700);
+  pointer-events: none;
+}
+
+.input-icon-preview .mdi {
+  font-size: 1.05rem;
 }
 
 .activity-image-grid {

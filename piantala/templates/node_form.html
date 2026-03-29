@@ -33,13 +33,35 @@
       </p>
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="form-grid two-col">
+    <form method="post" enctype="multipart/form-data" class="form-grid two-col" data-node-form-mode="{{ 'create' if is_new_node else 'edit' }}">
       {{ form.hidden_tag() }}
+      {% if parent_selected_year is not none %}
+        <input type="hidden" name="visible_year" value="{{ parent_selected_year }}">
+      {% endif %}
 
       {% if level >= 3 %}
         <label class="full-width" data-section-hidden-field="true">
           <span>{{ tr("node.cultivation_type") }}</span>
-          {{ form.cultivation_type_id(class_="input") }}
+          <select
+            name="{{ form.cultivation_type_id.name }}"
+            id="cultivation_type_id"
+            class="input"
+            data-cultivation-type-select="true"
+          >
+            <option value="0">{{ tr("node.cultivation_type_none") }}</option>
+            {% for cultivation_type in cultivation_types %}
+              {% if cultivation_type.id is not none and cultivation_type.selector_label %}
+                <option
+                  value="{{ cultivation_type.id }}"
+                  data-default-marker-color-id="{{ cultivation_type.default_marker_color_id or '' }}"
+                  data-default-marker-icon="{{ cultivation_type.default_marker_icon_normalized or '' }}"
+                  {% if (form.cultivation_type_id.data or 0) == cultivation_type.id %}selected{% endif %}
+                >
+                  {{ cultivation_type.selector_label }}
+                </option>
+              {% endif %}
+            {% endfor %}
+          </select>
           <small class="hint">{{ tr("node.cultivation_type_help") }}</small>
           {% for error in form.cultivation_type_id.errors %}
             <small class="field-error">{{ error }}</small>
@@ -59,6 +81,7 @@
               <option
                 value="{{ cultivation_variant.id }}"
                 data-cultivation-type-id="{{ cultivation_variant.cultivation_type_id }}"
+                data-default-marker-color-id="{{ cultivation_variant.effective_default_marker_color.id if cultivation_variant.effective_default_marker_color else '' }}"
                 {% if (form.cultivation_type_variant_id.data or 0) == cultivation_variant.id %}selected{% endif %}
               >
                 {{ cultivation_variant.name }}
@@ -393,6 +416,18 @@
       <div class="inline-map-help">
         <h2>{{ tr("node.child_hotspot_helper") }}</h2>
         <p>{{ tr("node.child_hotspot_text") }}</p>
+        {% if parent_available_cultivation_years %}
+          <form method="get" class="inline-toggle">
+            <label class="inline-select-label">
+              <span>{{ tr("node.cultivation_year_view") }}</span>
+              <select name="year" class="input" onchange="this.form.submit()">
+                {% for year_value in parent_available_cultivation_years %}
+                  <option value="{{ year_value }}" {% if parent_selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </form>
+        {% endif %}
         <div
           class="garden-map image-overlay"
           data-overlay-editor="true"
@@ -404,14 +439,15 @@
           data-width-input="overlay_width"
           data-height-input="overlay_height"
           data-feedback-target="image-picker-feedback"
-        >
-          <div class="image-stage">
+            >
+              <div class="image-stage">
             <img
               class="stage-image"
               src="{{ url_for('static', filename=parent.map_view_image) }}"
               alt="Parent image helper"
             >
             {% for sibling in parent.children if sibling.has_hotspot and (node is none or sibling.id != node.id) %}
+              {% set sibling_hidden_by_year = parent_selected_year is not none and not sibling.is_dead and ((sibling.life_cycle == 'annual' and sibling.effective_cultivation_year != parent_selected_year) or (sibling.life_cycle == 'perennial' and sibling.planting_date and sibling.planting_date.year > parent_selected_year) or (sibling.life_cycle == 'perennial' and sibling.death_year and sibling.death_year < parent_selected_year)) %}
               {% if sibling.overlay_shape == 'area' %}
                 <a
                   class="image-hotspot-area-overlay image-hotspot-static"
@@ -420,6 +456,7 @@
                   title="{{ sibling.title }}"
                   data-title="{{ sibling.title }}"
                   aria-label="{{ sibling.title }}"
+                  {% if sibling_hidden_by_year %}hidden{% endif %}
                 >
                   <svg class="image-hotspot-area-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                     <polygon class="image-hotspot-area-polygon" points="{{ sibling.area_overlay_svg_points }}"></polygon>
@@ -437,6 +474,7 @@
                     title="{{ sibling.title }}"
                     data-title="{{ sibling.title }}"
                     aria-label="{{ sibling.title }}"
+                    {% if sibling_hidden_by_year %}hidden{% endif %}
                   >
                     {% if sibling.marker_icon_class %}
                       <span class="image-hotspot-icon mdi {{ sibling.marker_icon_class }}" aria-hidden="true"></span>

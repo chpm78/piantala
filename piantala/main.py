@@ -177,6 +177,27 @@ def _default_marker_color_id(node_type: str, marker_colors: list[MarkerColor]) -
     return marker_colors[0].id if marker_colors else None
 
 
+def _cultivation_marker_defaults(
+    cultivation_type: CultivationType | None,
+    cultivation_variant: CultivationTypeVariant | None,
+) -> tuple[int | None, str | None]:
+    """Return the default marker color and icon for a cultivation selection.
+
+    Parameters:
+        cultivation_type: Selected cultivation type, if any.
+        cultivation_variant: Selected cultivation variant, if any.
+    """
+    if cultivation_variant is not None:
+        color = cultivation_variant.effective_default_marker_color
+        icon = cultivation_variant.effective_default_marker_icon_normalized
+        return (color.id if color is not None else None, icon)
+    if cultivation_type is not None:
+        color = cultivation_type.default_marker_color
+        icon = cultivation_type.default_marker_icon_normalized
+        return (color.id if color is not None else None, icon)
+    return (None, None)
+
+
 def _clamp_percent(value: float) -> float:
     """Keep a percentage value inside the 0-100 range.
 
@@ -1253,12 +1274,27 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         for cultivation_variant in cultivation_variants
         if cultivation_variant.id is not None
     }
+    is_new_node = node is None
     form = NodeForm(
         obj=node,
         cultivation_types_by_id=cultivation_types_by_id,
         cultivation_variants_by_id=cultivation_variants_by_id,
     )
     marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
+    parent_available_cultivation_years = _available_cultivation_years(parent) if parent is not None else []
+    current_calendar_year = datetime.now(UTC).year
+    if request.method == "GET":
+        parent_selected_year = request.args.get("year", type=int)
+        if parent is not None and parent_available_cultivation_years:
+            if parent_selected_year not in parent_available_cultivation_years:
+                if current_calendar_year in parent_available_cultivation_years:
+                    parent_selected_year = current_calendar_year
+                else:
+                    parent_selected_year = parent_available_cultivation_years[0]
+    else:
+        parent_selected_year = request.form.get("visible_year", type=int)
+        if parent_selected_year not in parent_available_cultivation_years:
+            parent_selected_year = None
     labels = _localized_labels()
     form.node_type.choices = [
         ("area", labels.get("node.type_area", "Area")),
@@ -1384,10 +1420,24 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         node.image_focus_x = float(form.image_focus_x.data) if form.image_focus_x.data is not None else 50.0
         node.image_focus_y = float(form.image_focus_y.data) if form.image_focus_y.data is not None else 50.0
         node.overlay_shape = form.overlay_shape.data
-        marker_color = db.session.get(MarkerColor, form.marker_color_id.data)
+        marker_color_id = form.marker_color_id.data
+        marker_icon = (form.marker_icon.data or "").strip()
+        if is_new_node:
+            node_type_default_marker_color_id = _default_marker_color_id(node.node_type, marker_colors)
+            cultivation_default_marker_color_id, cultivation_default_marker_icon = _cultivation_marker_defaults(
+                selected_cultivation_type,
+                selected_cultivation_variant,
+            )
+            if (
+                cultivation_default_marker_color_id is not None
+                and marker_color_id == node_type_default_marker_color_id
+            ):
+                marker_color_id = cultivation_default_marker_color_id
+            if cultivation_default_marker_icon and not marker_icon:
+                marker_icon = cultivation_default_marker_icon
+        marker_color = db.session.get(MarkerColor, marker_color_id)
         node.marker_color = marker_color
         node.hotspot_color = marker_color.hex_value if marker_color is not None else "#f28c28"
-        marker_icon = (form.marker_icon.data or "").strip()
         if marker_icon and not marker_icon.startswith("mdi-"):
             marker_icon = f"mdi-{marker_icon}"
         node.marker_icon = marker_icon or None
@@ -1503,9 +1553,12 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         level=level,
         settings=settings,
         use_geo_map=use_geo_map,
+        parent_selected_year=parent_selected_year,
+        parent_available_cultivation_years=parent_available_cultivation_years,
         marker_colors=marker_colors,
         cultivation_types=cultivation_types,
         cultivation_variants=cultivation_variants,
+        is_new_node=is_new_node,
         marker_icon_suggestions=MARKER_ICON_SUGGESTIONS,
         irrigation_zones=node.irrigation_zones if node is not None else [],
         delete_form=DeleteForm(),

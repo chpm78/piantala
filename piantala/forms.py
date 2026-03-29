@@ -298,6 +298,8 @@ class CultivationTypeForm(FlaskForm):
         validators=[Optional()],
     )
     external_url = StringField("External URL", validators=[Optional(), URL(), Length(max=500)])
+    default_marker_color_id = SelectField("Default marker color", coerce=int, validators=[Optional()], default=0)
+    default_marker_icon = SelectField("Default marker icon", choices=[("", "No icon")], validators=[Optional()])
     submit = SubmitField("Save cultivation type")
 
     def validate(self, extra_validators=None) -> bool:
@@ -312,7 +314,6 @@ class CultivationTypeForm(FlaskForm):
         self.botanical_name.data = (self.botanical_name.data or "").strip()
         self.common_name.data = (self.common_name.data or "").strip()
         self.external_url.data = (self.external_url.data or "").strip()
-
         if not self.botanical_name.data and not self.common_name.data:
             message = "Add at least a botanical name or a common name."
             self.botanical_name.errors.append(message)
@@ -336,6 +337,7 @@ class CultivationTypeImageForm(FlaskForm):
 class CultivationTypeVariantForm(FlaskForm):
     name = StringField("Variant name", validators=[DataRequired(), Length(max=160)])
     sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    default_marker_color_id = SelectField("Default marker color", coerce=int, validators=[Optional()], default=0)
     submit = SubmitField("Save variant")
 
 

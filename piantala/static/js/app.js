@@ -101,6 +101,42 @@ function syncCultivationVariantField() {
 }
 
 /**
+ * Apply cultivation marker defaults when creating a new cultivation node.
+ */
+function syncCultivationMarkerDefaults() {
+  const nodeForm = document.querySelector("form[data-node-form-mode]");
+  const typeSelect = document.querySelector("[data-cultivation-type-select='true']");
+  const variantSelect = document.querySelector("[data-cultivation-variant-select='true']");
+  const markerColorSelect = document.getElementById("marker_color_id");
+  const markerIconInput = document.getElementById("marker_icon");
+  if (
+    !nodeForm ||
+    nodeForm.dataset.nodeFormMode !== "create" ||
+    !typeSelect ||
+    !variantSelect ||
+    !markerColorSelect ||
+    !markerIconInput
+  ) {
+    return;
+  }
+
+  const selectedVariant = variantSelect.selectedOptions?.[0];
+  const selectedType = typeSelect.selectedOptions?.[0];
+  const markerColorId =
+    selectedVariant?.dataset.defaultMarkerColorId ||
+    selectedType?.dataset.defaultMarkerColorId ||
+    "";
+  const markerIcon = selectedType?.dataset.defaultMarkerIcon || "";
+
+  if (markerColorId) {
+    markerColorSelect.value = markerColorId;
+  }
+
+  markerIconInput.value = markerIcon;
+  syncMarkerPreview();
+}
+
+/**
  * Keep the cultivation year aligned with the planting date for annual records.
  */
 function syncCultivationYearFromPlantingDate() {
@@ -172,6 +208,33 @@ function syncMarkerPreview() {
   document.querySelectorAll("[data-overlay-editor='true']").forEach((container) => {
     syncOverlayEditorPreview(container);
   });
+}
+
+/**
+ * Refresh the cultivation-type icon preview shown inside the admin select field.
+ */
+function syncCultivationTypeIconPreview() {
+  const select = document.getElementById("default_marker_icon");
+  const colorSelect = document.getElementById("default_marker_color_id");
+  const preview = document.getElementById("cultivation-type-icon-preview");
+  const glyph = document.getElementById("cultivation-type-icon-preview-glyph");
+  if (!select || !preview || !glyph) {
+    return;
+  }
+
+  const iconValue = (select.value || "").trim();
+  glyph.className = "mdi";
+  if (!iconValue) {
+    preview.hidden = true;
+    return;
+  }
+
+  const normalizedIcon = iconValue.startsWith("mdi-") ? iconValue : `mdi-${iconValue}`;
+  const colorOption = colorSelect?.selectedOptions?.[0];
+  const colorMatch = colorOption?.textContent?.match(/(#[0-9a-fA-F]{6})/);
+  glyph.classList.add(normalizedIcon);
+  preview.style.color = colorMatch ? colorMatch[1] : "";
+  preview.hidden = false;
 }
 
 /**
@@ -1257,6 +1320,11 @@ document.addEventListener("change", (event) => {
 
   if (event.target.matches("select[name='cultivation_type_id']")) {
     syncCultivationVariantField();
+    syncCultivationMarkerDefaults();
+  }
+
+  if (event.target.matches("[data-cultivation-variant-select='true']")) {
+    syncCultivationMarkerDefaults();
   }
 
   if (event.target.matches("select[name='life_cycle']")) {
@@ -1283,6 +1351,14 @@ document.addEventListener("change", (event) => {
 
   if (event.target.matches("#marker_icon")) {
     syncMarkerPreview();
+  }
+
+  if (event.target.matches("#default_marker_icon")) {
+    syncCultivationTypeIconPreview();
+  }
+
+  if (event.target.matches("#default_marker_color_id")) {
+    syncCultivationTypeIconPreview();
   }
 });
 
@@ -3129,6 +3205,7 @@ window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
 window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
   syncCultivationVariantField();
+  syncCultivationMarkerDefaults();
   syncMarkerPreview();
   initOverlayEditors();
   initCultivationPositionManagers();
@@ -3137,6 +3214,7 @@ window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   initSearchableSelects();
   initNodeDetailFilters();
   initEntityHistoryPanels();
+  syncCultivationTypeIconPreview();
 };
 
 if (window.google?.maps) {
@@ -3150,6 +3228,7 @@ if (window.L) {
 syncProviderPanels();
 syncNodeTypeFields();
 syncCultivationVariantField();
+syncCultivationMarkerDefaults();
 syncCultivationYearFromPlantingDate();
 initOverlayEditors();
 initCultivationPositionManagers();
@@ -3158,3 +3237,4 @@ initIrrigationSubzoneEditors();
 initSearchableSelects();
 initNodeDetailFilters();
 initEntityHistoryPanels();
+syncCultivationTypeIconPreview();
