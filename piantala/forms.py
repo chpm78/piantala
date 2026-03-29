@@ -260,6 +260,12 @@ class ActionForm(FlaskForm):
     submit = SubmitField("Submit")
 
 
+class ManagedMdiIconAddForm(FlaskForm):
+    icon_name = HiddenField("Icon name", validators=[DataRequired(), Length(max=64)])
+    tags_json = HiddenField("Icon tags")
+    submit = SubmitField("Add icon")
+
+
 class ProfileLanguageForm(FlaskForm):
     preferred_locale = SelectField(
         "Language",
@@ -541,6 +547,17 @@ class NodeForm(FlaskForm):
         Parameters:
             extra_validators: Additional WTForms validators supplied by Flask-WTF.
         """
+        # These image framing fields are no longer exposed in the node form,
+        # so keep them on sensible defaults when older submissions omit them.
+        if not (self.hero_image_role.data or "").strip():
+            self.hero_image_role.data = "display"
+        if not (self.image_display_mode.data or "").strip():
+            self.image_display_mode.data = "contain"
+        if self.image_focus_x.data is None:
+            self.image_focus_x.data = 50
+        if self.image_focus_y.data is None:
+            self.image_focus_y.data = 50
+
         if not super().validate(extra_validators=extra_validators):
             return False
 
@@ -552,22 +569,21 @@ class NodeForm(FlaskForm):
             self.cultivation_type_variant_id.data = 0
             selected_cultivation_type = None
             selected_variant = None
-        elif selected_cultivation_type is not None:
+        elif selected_cultivation_type is None:
+            self.cultivation_type_id.errors.append("Choose a cultivation type.")
+            return False
+        else:
             if not (self.title.data or "").strip():
                 self.title.data = selected_cultivation_type.default_node_title_for_variant(
                     selected_variant.name if selected_variant is not None else None
                 )
-            if selected_cultivation_type.life_cycle:
-                self.life_cycle.data = selected_cultivation_type.life_cycle
+            self.life_cycle.data = selected_cultivation_type.life_cycle or ""
             if selected_variant is not None and selected_variant.cultivation_type_id != selected_cultivation_type.id:
                 self.cultivation_type_variant_id.errors.append("Choose a variant that belongs to the selected cultivation type.")
                 return False
             if selected_variant is None and getattr(selected_cultivation_type, "variants", None):
                 self.cultivation_type_variant_id.errors.append("Choose one variant for this cultivation type.")
                 return False
-        elif selected_variant is not None:
-            self.cultivation_type_variant_id.errors.append("Choose a cultivation type before selecting a variant.")
-            return False
 
         self.title.data = (self.title.data or "").strip()
         if not self.title.data:

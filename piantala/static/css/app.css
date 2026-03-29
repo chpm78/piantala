@@ -1970,6 +1970,43 @@ body.has-modal-open {
   margin-top: 1rem;
 }
 
+.mdi-icon-picker {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.mdi-icon-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.mdi-icon-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mdi-icon-card-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.mdi-icon-card-copy small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.icon-button[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
   .three-col-grid,
   .two-col {

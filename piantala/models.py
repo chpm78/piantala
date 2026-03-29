@@ -40,6 +40,21 @@ DEFAULT_MARKER_COLOR_BY_NODE_TYPE = {
     "section": 2,
 }
 
+DEFAULT_MANAGED_MDI_ICONS = [
+    ("mdi-sprout", ["plant", "sprout", "garden", "growth"]),
+    ("mdi-flower", ["flower", "bloom", "garden"]),
+    ("mdi-flower-tulip", ["flower", "tulip", "garden"]),
+    ("mdi-leaf", ["leaf", "plant", "garden"]),
+    ("mdi-tree", ["tree", "plant", "garden"]),
+    ("mdi-pine-tree", ["tree", "pine", "evergreen"]),
+    ("mdi-fruit-cherries", ["fruit", "cherries", "tree"]),
+    ("mdi-seed", ["seed", "sowing", "plant"]),
+    ("mdi-water", ["water", "irrigation"]),
+    ("mdi-weather-sunny", ["sun", "weather", "garden"]),
+    ("mdi-ladybug", ["ladybug", "insect", "garden"]),
+    ("mdi-bug", ["bug", "insect"]),
+]
+
 IRRIGATION_ZONE_COLORS = {
     "blue": "#2c75ff",
     "teal": "#1f9d8b",
@@ -94,6 +109,18 @@ def _normalize_optional_key(value: str | None) -> str | None:
     """
     cleaned = _normalize_optional_text(value)
     return cleaned.casefold() if cleaned else None
+
+
+def _normalize_mdi_icon_name(value: str | None) -> str | None:
+    """Return an icon name in normalized ``mdi-*`` form.
+
+    Parameters:
+        value: Raw icon name collected from forms or database rows.
+    """
+    cleaned = _normalize_optional_text(value)
+    if cleaned is None:
+        return None
+    return cleaned if cleaned.startswith("mdi-") else f"mdi-{cleaned}"
 
 
 def _most_common_non_empty(values: list[str | int | None]) -> str | int | None:
@@ -305,6 +332,55 @@ class MarkerColor(AuditMixin, db.Model):
     )
 
 
+class ManagedMdiIcon(AuditMixin, db.Model):
+    __tablename__ = "managed_mdi_icons"
+
+    id = db.Column(db.Integer, primary_key=True)
+    icon_name = db.Column(db.String(64), unique=True, nullable=False)
+    tags_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    @property
+    def icon_name_normalized(self) -> str:
+        """Return the icon name in normalized ``mdi-*`` form."""
+        return _normalize_mdi_icon_name(self.icon_name) or ""
+
+    @property
+    def tags_list(self) -> list[str]:
+        """Return stored icon tags as a normalized list."""
+        if not self.tags_json:
+            return []
+        try:
+            payload = json.loads(self.tags_json)
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(payload, list):
+            return []
+        tags: list[str] = []
+        seen: set[str] = set()
+        for item in payload:
+            if not isinstance(item, str):
+                continue
+            cleaned = item.strip()
+            normalized_key = cleaned.casefold()
+            if not cleaned or normalized_key in seen:
+                continue
+            seen.add(normalized_key)
+            tags.append(cleaned)
+        return tags
+
+    @property
+    def tags_display(self) -> str:
+        """Return icon tags as a comma-separated label."""
+        return ", ".join(self.tags_list)
+
+
 class CultivationType(AuditMixin, db.Model):
     __tablename__ = "cultivation_types"
 
@@ -398,10 +474,10 @@ class CultivationType(AuditMixin, db.Model):
     @property
     def default_node_title(self) -> str:
         """Return the suggested node title for cultivations using this type."""
-        base_label = _normalize_optional_text(self.common_name) or _normalize_optional_text(self.botanical_name)
+        base_label = self.selector_label
         variant = self.variants_list[0] if self.variants_list else None
         if base_label and variant:
-            return f"{base_label} ({variant})"
+            return f"{base_label}, {variant}"
         if base_label:
             return base_label
         return variant or ""
@@ -412,10 +488,10 @@ class CultivationType(AuditMixin, db.Model):
         Parameters:
             variant_name: Variant name chosen for the cultivation, if any.
         """
-        base_label = _normalize_optional_text(self.common_name) or _normalize_optional_text(self.botanical_name)
+        base_label = self.selector_label
         selected_variant = _normalize_optional_text(variant_name)
         if base_label and selected_variant:
-            return f"{base_label} ({selected_variant})"
+            return f"{base_label}, {selected_variant}"
         if base_label:
             return base_label
         return selected_variant or ""
@@ -1514,6 +1590,22 @@ def ensure_seed_data() -> None:
         db.session.flush()
         marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
 
+    existing_managed_icons = {
+        icon.icon_name_normalized: icon
+        for icon in ManagedMdiIcon.query.order_by(ManagedMdiIcon.id).all()
+        if icon.icon_name_normalized
+    }
+    for icon_name, tags in DEFAULT_MANAGED_MDI_ICONS:
+        normalized_icon_name = _normalize_mdi_icon_name(icon_name)
+        if normalized_icon_name is None or normalized_icon_name in existing_managed_icons:
+            continue
+        icon = ManagedMdiIcon(
+            icon_name=normalized_icon_name,
+            tags_json=json.dumps(tags),
+        )
+        db.session.add(icon)
+        existing_managed_icons[normalized_icon_name] = icon
+
     default_activity_types = [
         ("Fertilization", "Fertilizer application and soil enrichment.", False),
         ("Plowing", "Soil preparation, plowing, or tilling work.", False),
@@ -1673,6 +1765,37 @@ def ensure_seed_data() -> None:
         if variant.default_marker_color_id is None:
             marker_color_id = _most_common_non_empty([node.marker_color_id for node in variant.nodes])
             variant.default_marker_color_id = int(marker_color_id) if marker_color_id is not None else None
+
+    referenced_icon_names = {
+        normalized_icon_name
+        for normalized_icon_name in (
+            _normalize_mdi_icon_name(cultivation_type.default_marker_icon)
+            for cultivation_type in CultivationType.query.order_by(CultivationType.id).all()
+        )
+        if normalized_icon_name is not None
+    }
+    referenced_icon_names.update(
+        normalized_icon_name
+        for normalized_icon_name in (
+            _normalize_mdi_icon_name(variant.default_marker_icon)
+            for variant in CultivationTypeVariant.query.order_by(CultivationTypeVariant.id).all()
+        )
+        if normalized_icon_name is not None
+    )
+    referenced_icon_names.update(
+        normalized_icon_name
+        for normalized_icon_name in (
+            _normalize_mdi_icon_name(node.marker_icon)
+            for node in GardenNode.query.order_by(GardenNode.id).all()
+        )
+        if normalized_icon_name is not None
+    )
+    for icon_name in sorted(referenced_icon_names):
+        icon = existing_managed_icons.get(icon_name)
+        if icon is None:
+            icon = ManagedMdiIcon(icon_name=icon_name)
+            db.session.add(icon)
+            existing_managed_icons[icon_name] = icon
 
     for key, localized_values in DEFAULT_TRANSLATIONS.items():
         for locale, text_value in localized_values.items():

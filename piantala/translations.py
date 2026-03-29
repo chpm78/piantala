@@ -31,6 +31,7 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "admin.section.overview": {"en": "Overview", "it": "Panoramica"},
     "admin.section.garden": {"en": "Garden settings", "it": "Impostazioni giardino"},
     "admin.section.cultivation_types": {"en": "Cultivation types", "it": "Tipi di coltivazione"},
+    "admin.section.mdi_icons": {"en": "MDI icons", "it": "Icone MDI"},
     "admin.section.marker_colors": {"en": "Marker colors", "it": "Colori marcatori"},
     "admin.section.activity_types": {"en": "Activity types", "it": "Tipi di attivita'"},
     "admin.section.link_types": {"en": "Link types", "it": "Tipi di link"},
@@ -56,6 +57,10 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "admin.card.cultivation_types": {
         "en": "Build a reusable cultivation catalog with botanical/common names, lifecycle, links, and reference pictures.",
         "it": "Crea un catalogo riutilizzabile delle coltivazioni con nomi botanici/comuni, ciclo vitale, link e immagini di riferimento.",
+    },
+    "admin.card.mdi_icons": {
+        "en": "Manage the curated MDI icon catalog available in Piantala forms.",
+        "it": "Gestisci il catalogo di icone MDI disponibile nei form di Piantala.",
     },
     "admin.card.marker_colors": {
         "en": "Manage the 16 marker colors used for points and overlays in the garden images.",
@@ -734,6 +739,42 @@ DEFAULT_TRANSLATIONS: dict[str, dict[str, str]] = {
     "cultivation_types.image_title": {"en": "Picture title", "it": "Titolo immagine"},
     "cultivation_types.image_file": {"en": "Picture file", "it": "File immagine"},
     "cultivation_types.image_sort_order": {"en": "Picture sort order", "it": "Ordine immagine"},
+    "mdi_icons.title": {"en": "MDI icon catalog", "it": "Catalogo icone MDI"},
+    "mdi_icons.description": {
+        "en": "Choose which Material Design Icons are available throughout Piantala.",
+        "it": "Scegli quali Material Design Icons sono disponibili in tutto Piantala.",
+    },
+    "mdi_icons.add_title": {"en": "Add icon", "it": "Aggiungi icona"},
+    "mdi_icons.add_text": {
+        "en": "Search the full MDI list by name or tags, then add the icons you want to reuse in Piantala.",
+        "it": "Cerca nella lista completa MDI per nome o tag, poi aggiungi le icone che vuoi riutilizzare in Piantala.",
+    },
+    "mdi_icons.search_label": {"en": "Search full MDI list", "it": "Cerca nella lista completa MDI"},
+    "mdi_icons.search_placeholder": {
+        "en": "Type a name or a tag like tree, fruit, flower, irrigation...",
+        "it": "Scrivi un nome o un tag come tree, fruit, flower, irrigation...",
+    },
+    "mdi_icons.loading": {"en": "Loading full MDI catalog...", "it": "Caricamento catalogo MDI completo..."},
+    "mdi_icons.loaded": {"en": "Full MDI catalog loaded.", "it": "Catalogo MDI completo caricato."},
+    "mdi_icons.load_failed": {
+        "en": "The full MDI catalog could not be loaded right now from the remote source.",
+        "it": "Il catalogo MDI completo non puo' essere caricato ora dalla sorgente remota.",
+    },
+    "mdi_icons.search_prompt": {
+        "en": "Start typing to filter the full MDI catalog.",
+        "it": "Inizia a scrivere per filtrare il catalogo MDI completo.",
+    },
+    "mdi_icons.no_results": {"en": "No matching icons found.", "it": "Nessuna icona corrispondente trovata."},
+    "mdi_icons.icon_name": {"en": "Icon name", "it": "Nome icona"},
+    "mdi_icons.tags": {"en": "Tags", "it": "Tag"},
+    "mdi_icons.used_count": {"en": "Used in Piantala", "it": "Usata in Piantala"},
+    "mdi_icons.add": {"en": "Add", "it": "Aggiungi"},
+    "mdi_icons.added": {"en": "Added", "it": "Aggiunta"},
+    "mdi_icons.usage_title": {"en": "MDI icon usage", "it": "Utilizzo icona MDI"},
+    "mdi_icons.used_kind": {"en": "Used as", "it": "Usata come"},
+    "mdi_icons.used_label": {"en": "Label", "it": "Etichetta"},
+    "mdi_icons.used_detail": {"en": "Details", "it": "Dettagli"},
+    "mdi_icons.not_used": {"en": "This icon is not used anywhere in Piantala.", "it": "Questa icona non e' usata da nessuna parte in Piantala."},
     "link_types.title": {"en": "Link types", "it": "Tipi di link"},
     "link_types.description": {
         "en": "Configure the reusable link categories available when adding links to a node.",

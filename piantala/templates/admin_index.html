@@ -53,6 +53,15 @@
 
         <article class="card">
           <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.mdi_icons") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.mdi_icons') }}">{{ tr("admin.section.mdi_icons") }}</a></h3>
+            <p>{{ tr("admin.card.mdi_icons") }}</p>
+            <a class="text-link" href="{{ url_for('admin.mdi_icons') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
             <p class="eyebrow">{{ tr("admin.section.link_types") }}</p>
             <h3><a class="card-title-link" href="{{ url_for('admin.link_types') }}">{{ tr("admin.section.link_types") }}</a></h3>
             <p>{{ tr("admin.card.link_types") }}</p>

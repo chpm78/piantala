@@ -1,5 +1,6 @@
 from collections import defaultdict
 from importlib.metadata import PackageNotFoundError, distributions, version as package_version
+import json
 from pathlib import Path
 import platform
 import shutil
@@ -19,6 +20,7 @@ from .forms import (
     DeleteForm,
     HomeAssistantSettingsForm,
     LinkTypeForm,
+    ManagedMdiIconAddForm,
     MarkerColorForm,
     UserForm,
 )
@@ -32,6 +34,7 @@ from .models import (
     HomeAssistantEntityCatalog,
     HomeAssistantSettings,
     LinkType,
+    ManagedMdiIcon,
     MarkerColor,
     NodeActivity,
     NodeActivityImage,
@@ -48,20 +51,9 @@ from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-MARKER_ICON_CHOICES = [
-    ("", "No icon"),
-    ("mdi-sprout", "mdi-sprout"),
-    ("mdi-flower", "mdi-flower"),
-    ("mdi-flower-tulip", "mdi-flower-tulip"),
-    ("mdi-leaf", "mdi-leaf"),
-    ("mdi-tree", "mdi-tree"),
-    ("mdi-pine-tree", "mdi-pine-tree"),
-    ("mdi-fruit-cherries", "mdi-fruit-cherries"),
-    ("mdi-seed", "mdi-seed"),
-    ("mdi-water", "mdi-water"),
-    ("mdi-weather-sunny", "mdi-weather-sunny"),
-    ("mdi-ladybug", "mdi-ladybug"),
-    ("mdi-bug", "mdi-bug"),
+MDI_METADATA_URLS = [
+    "https://cdn.jsdelivr.net/npm/@mdi/svg@7.4.47/meta.json",
+    "https://unpkg.com/@mdi/svg@7.4.47/meta.json",
 ]
 
 
@@ -72,7 +64,11 @@ def _marker_icon_choices(selected_icon: str | None = None) -> list[tuple[str, st
         selected_icon: Existing saved icon value that should stay selectable.
     """
     normalized_selected_icon = _normalized_marker_icon(selected_icon)
-    choices = list(MARKER_ICON_CHOICES)
+    choices = [("", "No icon")] + [
+        (icon.icon_name_normalized, icon.icon_name_normalized)
+        for icon in ManagedMdiIcon.query.order_by(ManagedMdiIcon.icon_name).all()
+        if icon.icon_name_normalized
+    ]
     if normalized_selected_icon and all(value != normalized_selected_icon for value, _label in choices):
         choices.append((normalized_selected_icon, normalized_selected_icon))
     return choices
@@ -90,6 +86,69 @@ def _normalized_marker_icon(value: str | None) -> str | None:
     if not icon.startswith("mdi-"):
         return f"mdi-{icon}"
     return icon
+
+
+def _mdi_icon_usage_rows(icon_name: str) -> list[dict[str, str | int]]:
+    """Return every place where one managed MDI icon is used.
+
+    Parameters:
+        icon_name: Normalized ``mdi-*`` icon name to inspect.
+    """
+    rows: list[dict[str, str | int]] = []
+
+    for cultivation_type in CultivationType.query.order_by(
+        CultivationType.botanical_name,
+        CultivationType.common_name,
+        CultivationType.id,
+    ).all():
+        if cultivation_type.default_marker_icon_normalized != icon_name:
+            continue
+        rows.append(
+            {
+                "kind": "cultivation_type",
+                "label": cultivation_type.selector_label or cultivation_type.default_node_title or icon_name,
+                "detail": "Cultivation type default icon",
+                "url": url_for("admin.edit_cultivation_type", cultivation_type_id=cultivation_type.id),
+                "id": cultivation_type.id,
+            }
+        )
+
+    for variant in CultivationTypeVariant.query.order_by(
+        CultivationTypeVariant.cultivation_type_id,
+        CultivationTypeVariant.sort_order,
+        CultivationTypeVariant.name,
+        CultivationTypeVariant.id,
+    ).all():
+        if _normalized_marker_icon(variant.default_marker_icon) != icon_name:
+            continue
+        rows.append(
+            {
+                "kind": "cultivation_variant",
+                "label": f"{variant.cultivation_type.selector_label}: {variant.name}",
+                "detail": "Legacy variant icon",
+                "url": url_for("admin.edit_cultivation_type_variant", variant_id=variant.id),
+                "id": variant.id,
+            }
+        )
+
+    for node in GardenNode.query.order_by(
+        GardenNode.title,
+        GardenNode.id,
+    ).all():
+        if _normalized_marker_icon(node.marker_icon) != icon_name:
+            continue
+        breadcrumb = " / ".join(crumb.title for crumb in node.breadcrumbs())
+        rows.append(
+            {
+                "kind": "node",
+                "label": node.title,
+                "detail": breadcrumb,
+                "url": url_for("main.node_detail", node_id=node.id),
+                "id": node.id,
+            }
+        )
+
+    return rows
 
 
 def _apply_cultivation_type_marker_defaults(cultivation_type: CultivationType) -> int:
@@ -480,6 +539,84 @@ def index():
         )
     flash("You do not have permission for that action.", "danger")
     return redirect(url_for("main.index"))
+
+
+@bp.route("/mdi-icons", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def mdi_icons():
+    """Manage the curated MDI icon catalog used by Piantala."""
+    add_form = ManagedMdiIconAddForm()
+    delete_form = DeleteForm()
+
+    if add_form.validate_on_submit():
+        normalized_icon_name = _normalized_marker_icon(add_form.icon_name.data)
+        if normalized_icon_name is None:
+            flash("Choose one icon from the MDI catalog first.", "danger")
+            return redirect(url_for("admin.mdi_icons"))
+
+        icon = ManagedMdiIcon.query.filter_by(icon_name=normalized_icon_name).first()
+        if icon is None:
+            icon = ManagedMdiIcon(
+                icon_name=normalized_icon_name,
+                tags_json=add_form.tags_json.data or None,
+            )
+            db.session.add(icon)
+            db.session.commit()
+            flash("Icon added to the Piantala catalog.", "success")
+        else:
+            if not icon.tags_json and (add_form.tags_json.data or "").strip():
+                icon.tags_json = add_form.tags_json.data
+                db.session.commit()
+            flash("That icon is already in the Piantala catalog.", "warning")
+        return redirect(url_for("admin.mdi_icons"))
+
+    icons = ManagedMdiIcon.query.order_by(ManagedMdiIcon.icon_name).all()
+    usage_counts = {
+        icon.id: len(_mdi_icon_usage_rows(icon.icon_name_normalized))
+        for icon in icons
+    }
+    return render_template(
+        "mdi_icons.html",
+        settings=GardenSettings.get_or_create(),
+        mdi_metadata_urls=MDI_METADATA_URLS,
+        icons=icons,
+        usage_counts=usage_counts,
+        add_form=add_form,
+        delete_form=delete_form,
+    )
+
+
+@bp.route("/mdi-icons/<int:icon_id>/usage", methods=["GET"])
+@login_required
+@permission_required("manage_content")
+def mdi_icon_usage(icon_id: int):
+    """Show where one managed MDI icon is currently used."""
+    icon = ManagedMdiIcon.query.get_or_404(icon_id)
+    return render_template(
+        "mdi_icon_usage.html",
+        settings=GardenSettings.get_or_create(),
+        icon=icon,
+        usage_rows=_mdi_icon_usage_rows(icon.icon_name_normalized),
+    )
+
+
+@bp.route("/mdi-icons/<int:icon_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_mdi_icon(icon_id: int):
+    """Remove one icon from the managed Piantala catalog when it is unused."""
+    icon = ManagedMdiIcon.query.get_or_404(icon_id)
+    form = DeleteForm()
+    if form.validate_on_submit():
+        usage_rows = _mdi_icon_usage_rows(icon.icon_name_normalized)
+        if usage_rows:
+            flash("This icon is still used in Piantala. Open its usage list before removing it.", "warning")
+        else:
+            db.session.delete(icon)
+            db.session.commit()
+            flash("Icon removed from the Piantala catalog.", "success")
+    return redirect(url_for("admin.mdi_icons"))
 
 
 @bp.route("/storage")

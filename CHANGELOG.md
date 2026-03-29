@@ -4,6 +4,17 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.5.3] - 2026-03-29
+
+### Added
+- Admin now includes an `MDI icons` catalog where you can search the full MDI list by name or tags, add icons to Piantala, inspect where they are used, and remove unused ones.
+- Cultivation and cultivation-type icon selectors now read from the managed Piantala MDI catalog instead of a hardcoded list.
+
+### Fixed
+- New cultivation nodes now save reliably again after the recent cultivation-type refactor, with hidden legacy image-framing defaults restored automatically.
+- Duplicate cultivation titles in the same parent/year are now caught before the database flush and shown as a normal form validation error instead of failing silently or with a raw SQL error.
+- Annual cultivation year behavior in the node form now follows the hidden lifecycle field correctly.
+
 ## [0.5.2] - 2026-03-29
 
 ### Added

@@ -36,6 +36,7 @@ from .models import (
     IRRIGATION_ZONE_TEXTURES,
     LinkType,
     MarkerColor,
+    ManagedMdiIcon,
     NodeActivity,
     NodeActivityImage,
     NodeExternalLink,
@@ -77,6 +78,16 @@ def _upload_directory() -> Path:
     from flask import current_app
 
     return Path(current_app.config["UPLOAD_FOLDER"])
+
+
+def _managed_marker_icon_suggestions() -> list[tuple[str, str]]:
+    """Return the curated MDI icon suggestions available in node forms."""
+    icons = [
+        (icon.icon_name_normalized, icon.icon_name_normalized)
+        for icon in ManagedMdiIcon.query.order_by(ManagedMdiIcon.icon_name).all()
+        if icon.icon_name_normalized
+    ]
+    return icons or MARKER_ICON_SUGGESTIONS
 
 
 def _collect_activity_image_paths(activity: NodeActivity) -> set[str]:
@@ -1379,11 +1390,32 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
                 form.marker_color_id.data = default_marker_color_id
         form.hero_image_role.data = "display"
 
+    def render_node_form():
+        """Render the node create/edit page with the current form state."""
+        return render_template(
+            "node_form.html",
+            form=form,
+            node=node,
+            parent=parent,
+            level=level,
+            settings=settings,
+            use_geo_map=use_geo_map,
+            parent_selected_year=parent_selected_year,
+            parent_available_cultivation_years=parent_available_cultivation_years,
+            marker_colors=marker_colors,
+            cultivation_types=cultivation_types,
+            cultivation_variants=cultivation_variants,
+            is_new_node=is_new_node,
+            marker_icon_suggestions=_managed_marker_icon_suggestions(),
+            irrigation_zones=node.irrigation_zones if node is not None else [],
+            delete_form=DeleteForm(),
+        )
+
     if form.validate_on_submit():
         selected_cultivation_type = cultivation_types_by_id.get(form.cultivation_type_id.data or 0)
         selected_cultivation_variant = cultivation_variants_by_id.get(form.cultivation_type_variant_id.data or 0)
         if node is None:
-            node = GardenNode(parent=parent, level=level)
+            node = GardenNode(parent_id=parent.id if parent is not None else None, level=level)
             db.session.add(node)
 
         node.node_type = form.node_type.data
@@ -1408,7 +1440,7 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             node.quantity = form.quantity.data or 1
             node.life_cycle = (
                 selected_cultivation_type.life_cycle
-                if selected_cultivation_type is not None and selected_cultivation_type.life_cycle
+                if selected_cultivation_type is not None
                 else (form.life_cycle.data or None)
             )
             node.cultivation_year = (
@@ -1522,6 +1554,33 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             else None
         )
 
+        duplicate_filters = [GardenNode.title == node.title]
+        if parent is None:
+            duplicate_filters.append(GardenNode.parent_id.is_(None))
+        else:
+            duplicate_filters.append(GardenNode.parent_id == parent.id)
+        duplicate_year = node.cultivation_year if node.cultivation_year is not None else -1
+        with db.session.no_autoflush:
+            duplicate_node = (
+                GardenNode.query.filter(*duplicate_filters)
+                .filter(db.func.coalesce(GardenNode.cultivation_year, -1) == duplicate_year)
+                .filter(GardenNode.id != (node.id or 0))
+                .first()
+            )
+        if duplicate_node is not None:
+            has_duplicate_cultivation_year = node.cultivation_year is not None
+            if node.id is None and node in db.session:
+                db.session.expunge(node)
+                node = None
+            if has_duplicate_cultivation_year:
+                form.title.errors.append(
+                    "Another node with the same title already exists here for that cultivation year."
+                )
+            else:
+                form.title.errors.append("Another node with the same title already exists here.")
+            _flash_form_errors(form, "Node could not be saved. Check the highlighted fields.")
+            return render_node_form()
+
         if node.id is None:
             # Assign required fields before flushing so SQLite does not see a
             # partially initialized node with NULL title/type values.
@@ -1549,24 +1608,10 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         flash("Node saved.", "success")
         return redirect(url_for("main.node_detail", node_id=node.id))
 
-    return render_template(
-        "node_form.html",
-        form=form,
-        node=node,
-        parent=parent,
-        level=level,
-        settings=settings,
-        use_geo_map=use_geo_map,
-        parent_selected_year=parent_selected_year,
-        parent_available_cultivation_years=parent_available_cultivation_years,
-        marker_colors=marker_colors,
-        cultivation_types=cultivation_types,
-        cultivation_variants=cultivation_variants,
-        is_new_node=is_new_node,
-        marker_icon_suggestions=MARKER_ICON_SUGGESTIONS,
-        irrigation_zones=node.irrigation_zones if node is not None else [],
-        delete_form=DeleteForm(),
-    )
+    if request.method == "POST" and form.errors:
+        _flash_form_errors(form, "Node could not be saved. Check the highlighted fields.")
+
+    return render_node_form()
 
 
 @bp.route("/nodes/<int:node_id>/delete", methods=["POST"])

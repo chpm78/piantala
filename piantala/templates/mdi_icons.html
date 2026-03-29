@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.mdi_icons") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("mdi_icons.title") }}</h1>
+        <p>{{ tr("mdi_icons.description") }}</p>
+      </div>
+    </div>
+
+    <div class="inline-map-help">
+      <h2>{{ tr("mdi_icons.add_title") }}</h2>
+      <p>{{ tr("mdi_icons.add_text") }}</p>
+      <form method="post" id="mdi-icon-add-form">
+        {{ add_form.hidden_tag() }}
+        {{ add_form.icon_name(id="mdi-icon-name") }}
+        {{ add_form.tags_json(id="mdi-icon-tags-json") }}
+      </form>
+      <div class="mdi-icon-picker" data-mdi-icon-picker="true" data-metadata-urls='{{ mdi_metadata_urls|tojson }}' data-known-icons='{{ icons|map(attribute="icon_name_normalized")|list|tojson }}'>
+        <label>
+          <span>{{ tr("mdi_icons.search_label") }}</span>
+          <input type="text" class="input" id="mdi-icon-search" placeholder="{{ tr('mdi_icons.search_placeholder') }}">
+        </label>
+        <p class="muted" id="mdi-icon-picker-status">{{ tr("mdi_icons.loading") }}</p>
+        <div class="mdi-icon-results" id="mdi-icon-results"></div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>{{ tr("mdi_icons.icon_name") }}</th>
+            <th>{{ tr("mdi_icons.tags") }}</th>
+            <th>{{ tr("mdi_icons.used_count") }}</th>
+            <th>{{ tr("audit.title") }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for icon in icons %}
+            <tr>
+              <td class="cultivation-types-icon-cell">
+                <span class="cultivation-type-icon-preview" title="{{ icon.icon_name_normalized }}">
+                  <span class="mdi {{ icon.icon_name_normalized }}" aria-hidden="true"></span>
+                </span>
+              </td>
+              <td>{{ icon.icon_name_normalized }}</td>
+              <td>{{ icon.tags_display or "—" }}</td>
+              <td>
+                <a class="text-link" href="{{ url_for('admin.mdi_icon_usage', icon_id=icon.id) }}">{{ usage_counts.get(icon.id, 0) }}</a>
+              </td>
+              <td>
+                {% set item = icon %}
+                {% include "_audit_meta.html" %}
+              </td>
+              <td class="cultivation-types-actions-cell">
+                <div class="table-actions">
+                  <form method="post" action="{{ url_for('admin.delete_mdi_icon', icon_id=icon.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button
+                      type="submit"
+                      class="icon-button icon-button-danger"
+                      data-confirm="Delete this icon from the Piantala catalog?"
+                      aria-label="{{ tr('common.delete') }}"
+                      title="{{ tr('common.delete') }}"
+                      {% if usage_counts.get(icon.id, 0) > 0 %}disabled{% endif %}
+                    >
+                      <span class="mdi mdi-delete-outline" aria-hidden="true"></span>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (() => {
+      const picker = document.querySelector("[data-mdi-icon-picker='true']");
+      if (!picker) return;
+
+      const metadataUrls = JSON.parse(picker.dataset.metadataUrls || "[]");
+      const knownIcons = new Set(JSON.parse(picker.dataset.knownIcons || "[]"));
+      const searchInput = document.getElementById("mdi-icon-search");
+      const status = document.getElementById("mdi-icon-picker-status");
+      const results = document.getElementById("mdi-icon-results");
+      const addForm = document.getElementById("mdi-icon-add-form");
+      const iconNameInput = document.getElementById("mdi-icon-name");
+      const tagsInput = document.getElementById("mdi-icon-tags-json");
+
+      let catalog = [];
+
+      function normalizedIconName(value) {
+        const cleaned = (value || "").trim();
+        if (!cleaned) return "";
+        return cleaned.startsWith("mdi-") ? cleaned : `mdi-${cleaned}`;
+      }
+
+      function uniqueStrings(values) {
+        const seen = new Set();
+        const items = [];
+        values.forEach((value) => {
+          if (typeof value !== "string") return;
+          const cleaned = value.trim();
+          if (!cleaned) return;
+          const key = cleaned.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          items.push(cleaned);
+        });
+        return items;
+      }
+
+      function parseMetadata(raw) {
+        const source = Array.isArray(raw) ? raw : Array.isArray(raw?.icons) ? raw.icons : Object.values(raw || {});
+        return source
+          .map((entry) => {
+            const baseName = String(entry?.name || entry?.id || entry?.icon || "").trim();
+            const iconName = normalizedIconName(baseName);
+            const aliases = Array.isArray(entry?.aliases)
+              ? entry.aliases.map((alias) => typeof alias === "string" ? alias : alias?.name).filter(Boolean)
+              : [];
+            const tags = Array.isArray(entry?.tags)
+              ? entry.tags
+              : typeof entry?.tags === "string"
+                ? entry.tags.split(",")
+                : [];
+            const keywords = uniqueStrings([baseName, iconName, ...aliases, ...tags]);
+            return {
+              iconName,
+              tags: uniqueStrings(tags),
+              searchText: keywords.join(" ").toLowerCase(),
+            };
+          })
+          .filter((entry) => entry.iconName);
+      }
+
+      function renderResults() {
+        if (!results) return;
+        const query = (searchInput?.value || "").trim().toLowerCase();
+        const filtered = catalog
+          .filter((entry) => !query || entry.searchText.includes(query))
+          .slice(0, 80);
+
+        results.innerHTML = "";
+        if (!filtered.length) {
+          results.innerHTML = `<p class="muted">${query ? "{{ tr('mdi_icons.no_results') }}" : "{{ tr('mdi_icons.search_prompt') }}"}</p>`;
+          return;
+        }
+
+        filtered.forEach((entry) => {
+          const card = document.createElement("article");
+          card.className = "mdi-icon-card";
+
+          const preview = document.createElement("span");
+          preview.className = "cultivation-type-icon-preview";
+          preview.innerHTML = `<span class="mdi ${entry.iconName}" aria-hidden="true"></span>`;
+          card.appendChild(preview);
+
+          const body = document.createElement("div");
+          body.className = "mdi-icon-card-copy";
+          body.innerHTML = `
+            <strong>${entry.iconName}</strong>
+            <small>${entry.tags.length ? entry.tags.join(", ") : "—"}</small>
+          `;
+          card.appendChild(body);
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "button button-secondary button-small";
+          button.textContent = knownIcons.has(entry.iconName) ? "{{ tr('mdi_icons.added') }}" : "{{ tr('mdi_icons.add') }}";
+          button.disabled = knownIcons.has(entry.iconName);
+          button.addEventListener("click", () => {
+            if (button.disabled) return;
+            iconNameInput.value = entry.iconName;
+            tagsInput.value = JSON.stringify(entry.tags);
+            addForm.requestSubmit();
+          });
+          card.appendChild(button);
+          results.appendChild(card);
+        });
+      }
+
+      async function loadCatalog() {
+        for (const url of metadataUrls) {
+          try {
+            const response = await fetch(url, { mode: "cors" });
+            if (!response.ok) continue;
+            const payload = await response.json();
+            catalog = parseMetadata(payload);
+            if (catalog.length) {
+              status.textContent = "{{ tr('mdi_icons.loaded') }}";
+              renderResults();
+              return;
+            }
+          } catch (_error) {
+            continue;
+          }
+        }
+        status.textContent = "{{ tr('mdi_icons.load_failed') }}";
+      }
+
+      searchInput?.addEventListener("input", renderResults);
+      loadCatalog();
+    })();
+  </script>
+{% endblock %}
