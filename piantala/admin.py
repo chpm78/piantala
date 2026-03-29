@@ -1302,6 +1302,33 @@ def edit_cultivation_type(cultivation_type_id: int):
     )
 
 
+@bp.route("/cultivation-types/<int:cultivation_type_id>/usage", methods=["GET"])
+@login_required
+@permission_required("manage_content")
+def cultivation_type_usage(cultivation_type_id: int):
+    """Show which cultivations currently use one cultivation type.
+
+    Parameters:
+        cultivation_type_id: Identifier of the cultivation type being inspected.
+    """
+    cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
+    cultivation_nodes = sorted(
+        cultivation_type.nodes,
+        key=lambda node: (
+            [crumb.title.casefold() for crumb in node.breadcrumbs()],
+            node.cultivation_year or 0,
+            (node.title or "").casefold(),
+            node.id,
+        ),
+    )
+    return render_template(
+        "cultivation_type_usage.html",
+        cultivation_type=cultivation_type,
+        cultivation_nodes=cultivation_nodes,
+        settings=GardenSettings.get_or_create(),
+    )
+
+
 @bp.route("/cultivation-types/<int:cultivation_type_id>/apply-marker-defaults", methods=["POST"])
 @login_required
 @permission_required("manage_content")

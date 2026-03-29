@@ -4,6 +4,12 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.5.1] - 2026-03-29
+
+### Added
+- Cultivation types now expose a clickable usage count in both the catalog and edit page, opening a dedicated list of the cultivations that use that type.
+- The new cultivation-type usage page links directly to each cultivation and shows its breadcrumb path, variant, and cultivation year for faster inspection.
+
 ## [0.5.0] - 2026-03-29
 
 ### Added
