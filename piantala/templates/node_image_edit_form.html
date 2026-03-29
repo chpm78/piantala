@@ -32,6 +32,7 @@
       class="form-grid"
       data-photo-import-editor="true"
       data-photo-import-existing-src="{{ url_for('static', filename=current_image_path) }}"
+      data-photo-import-fixed-role="{{ image_role }}"
     >
       {{ form.hidden_tag() }}
 
@@ -101,5 +102,20 @@
         <a class="button button-secondary" href="{{ url_for('main.edit_node', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
       </div>
     </form>
+
+    <div class="inline-map-help">
+      <h2>{{ tr("common.delete") }}</h2>
+      <form method="post" action="{{ url_for('main.delete_node_image', node_id=node.id, image_role=image_role) }}" class="form-grid">
+        {{ delete_form.hidden_tag() }}
+        <input type="hidden" name="next_url" value="{{ url_for('main.edit_node', node_id=node.id) }}">
+        <label class="inline-check">
+          {{ delete_form.remove_files(id="delete-node-image-remove-files-" ~ node.id ~ '-' ~ image_role) }}
+          <span>{{ tr("common.remove_uploaded_files") }}</span>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="button button-danger" data-confirm="Delete this image?">{{ tr("common.delete") }}</button>
+        </div>
+      </form>
+    </div>
   </section>
 {% endblock %}

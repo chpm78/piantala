@@ -56,7 +56,20 @@
       {% endif %}
     </div>
 
-    {% set show_display_panel = display_image_path %}
+    {% set show_top_gallery = node.node_type not in ['section', 'area'] and top_gallery_images %}
+    {% set show_display_panel = display_image_path and not show_top_gallery %}
+
+    {% if show_top_gallery %}
+      <div class="inline-map-help">
+        <div class="node-gallery-grid">
+          {% for image in top_gallery_images %}
+            <a class="node-gallery-card" href="{{ url_for('static', filename=image.path) }}" target="_blank" rel="noreferrer">
+              <img class="node-gallery-image" src="{{ url_for('static', filename=image.path) }}" alt="{{ image.label }}">
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
 
     {% if show_display_panel %}
       <div class="inline-map-help">
@@ -74,7 +87,7 @@
 
     {% if navigation_image_path %}
       <div class="inline-map-help">
-        {% if available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3] %}
+        {% if show_overlay_filters and (available_cultivation_years or current_user.has_permission('manage_content') and node.level in [2, 3]) %}
           <section class="panel">
             <form method="get" class="inline-toggle" data-node-filters="true">
               {% if selected_source_section_id %}
@@ -276,6 +289,33 @@
       </div>
     {% endif %}
 
+    {% if node.cultivation_type and (node.cultivation_type.images or node.cultivation_type.external_url) %}
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>{{ tr("node.cultivation_type") }}</h2>
+            <p>{{ node.cultivation_type.selector_label }}</p>
+          </div>
+        </div>
+
+        {% if node.cultivation_type.external_url %}
+          <p>
+            <a class="text-link" href="{{ node.cultivation_type.external_url }}" target="_blank" rel="noreferrer">{{ node.cultivation_type.external_url }}</a>
+          </p>
+        {% endif %}
+
+        {% if node.cultivation_type.images %}
+          <div class="node-gallery-grid">
+            {% for image in node.cultivation_type.images %}
+              <a class="node-gallery-card" href="{{ url_for('static', filename=image.image_path) }}" target="_blank" rel="noreferrer">
+                <img class="node-gallery-image" src="{{ url_for('static', filename=image.image_path) }}" alt="{{ image.title or node.cultivation_type.selector_label }}">
+              </a>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+
     {% if current_user.has_permission('manage_content') %}
       <form method="post" action="{{ url_for('main.delete_node', node_id=node.id) }}" class="inline-delete">
         {{ delete_form.hidden_tag() }}
@@ -451,6 +491,15 @@
               {% if current_user.has_permission('manage_content') %}
                 <div class="stack-actions">
                   <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='display') }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_node_image', node_id=node.id, image_role='display') }}">
+                    {{ delete_form.hidden_tag() }}
+                    <input type="hidden" name="next_url" value="{{ url_for('main.node_detail', node_id=node.id) }}">
+                    <label class="inline-check">
+                      {{ delete_form.remove_files(id="delete-node-detail-display-remove-files-" ~ node.id) }}
+                      <span>{{ tr("common.remove_uploaded_files") }}</span>
+                    </label>
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this image?">{{ tr("common.delete") }}</button>
+                  </form>
                 </div>
               {% endif %}
             </div>
@@ -467,6 +516,15 @@
               {% if current_user.has_permission('manage_content') %}
                 <div class="stack-actions">
                   <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='map') }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_node_image', node_id=node.id, image_role='map') }}">
+                    {{ delete_form.hidden_tag() }}
+                    <input type="hidden" name="next_url" value="{{ url_for('main.node_detail', node_id=node.id) }}">
+                    <label class="inline-check">
+                      {{ delete_form.remove_files(id="delete-node-detail-map-remove-files-" ~ node.id) }}
+                      <span>{{ tr("common.remove_uploaded_files") }}</span>
+                    </label>
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this image?">{{ tr("common.delete") }}</button>
+                  </form>
                 </div>
               {% endif %}
             </div>

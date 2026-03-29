@@ -4,7 +4,26 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
-## [0.3.5] - Unreleased
+## [0.4.0] - 2026-03-29
+
+### Added
+- Cultivation types now have a dedicated catalog with shared images, external references, reusable variants, and admin management pages.
+- Cultivation nodes now surface cultivation-type reference images and external links directly in their detail view.
+- Dedicated node `display` and `map` images can now be deleted again from node detail, node edit, and image-edit screens.
+
+### Changed
+- Area nodes now present prospect and map images like sections instead of using the generic gallery-first layout.
+- The cultivation-types admin now opens variants from the cultivation edit page, where a compact variant table summarizes what is already available.
+- The cultivation-types admin table was tightened and stabilized for more predictable sorting and action-column alignment.
+
+### Fixed
+- Section year selectors now include years covered by perennial cultivations, and perennial overlays/cards only appear from their planting year onward.
+- Section filter controls are now aligned on a single row, with year and dead-plant controls only shown when relevant.
+- Area-based editors now let you drag the full polygon from inside the shape, while corner drags still reshape individual corners.
+- Crop/rotate reference lines now stay independent when moving or resizing the crop rectangle.
+- Cultivation images can now be removed again after the recent media workflow changes.
+
+## [0.3.5] - 2026-03-29
 
 ### Fixed
 - Section year selectors now include years covered by perennial cultivations, and perennial overlays/cards only appear from their planting year onward.

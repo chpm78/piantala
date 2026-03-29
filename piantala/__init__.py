@@ -12,6 +12,7 @@ from .config import Config
 from .extensions import db, login_manager
 from .media import max_dimension_for_kind, optimize_image_file, relative_upload_to_fs_path
 from .models import (
+    CultivationTypeImage,
     GardenNode,
     GardenSettings,
     NodeActivityImage,
@@ -112,6 +113,13 @@ def _organize_upload_folders(upload_dir: Path) -> int:
             image.image_path = new_path
             moved_count += 1
 
+    for image in CultivationTypeImage.query.all():
+        target_path = f"uploads/cultivation-types/{image.cultivation_type_id}/{Path(image.image_path).name}"
+        new_path = _move_upload_if_needed(upload_dir, image.image_path, target_path)
+        if new_path != image.image_path:
+            image.image_path = new_path
+            moved_count += 1
+
     if moved_count:
         db.session.commit()
     return moved_count
@@ -184,6 +192,12 @@ def create_app() -> Flask:
             optimization_targets[path] = max(
                 optimization_targets.get(path, 0),
                 max_dimension_for_kind(settings, "activity_image"),
+            )
+
+        for path in [path for (path,) in db.session.query(CultivationTypeImage.image_path).all()]:
+            optimization_targets[path] = max(
+                optimization_targets.get(path, 0),
+                max_dimension_for_kind(settings, "node_photo"),
             )
 
         optimized_count = 0

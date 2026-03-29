@@ -25,6 +25,7 @@
       enctype="multipart/form-data"
       class="form-grid"
       data-photo-import-editor="true"
+      data-photo-import-role-select="image_role"
     >
       {{ form.hidden_tag() }}
 
@@ -38,7 +39,7 @@
 
       <label>
         <span>{{ tr("node.image_usage") }}</span>
-        {{ form.image_role(class_="input") }}
+        {{ form.image_role(class_="input", id="image_role") }}
       </label>
 
       <label>

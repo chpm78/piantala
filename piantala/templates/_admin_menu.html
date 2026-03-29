@@ -12,6 +12,7 @@
   <nav class="admin-menu">
     {% if current_user.has_permission('manage_content') %}
       <a class="{% if request.endpoint == 'main.map_settings' %}is-active{% endif %}" href="{{ url_for('main.map_settings') }}">{{ tr("admin.section.garden") }}</a>
+      <a class="{% if request.endpoint in ['admin.cultivation_types', 'admin.create_cultivation_type', 'admin.edit_cultivation_type', 'admin.cultivation_type_variants', 'admin.edit_cultivation_type_variant', 'admin.add_cultivation_type_image', 'admin.edit_cultivation_type_image'] %}is-active{% endif %}" href="{{ url_for('admin.cultivation_types') }}">{{ tr("admin.section.cultivation_types") }}</a>
       <a class="{% if request.endpoint in ['admin.marker_colors', 'admin.edit_marker_color'] %}is-active{% endif %}" href="{{ url_for('admin.marker_colors') }}">{{ tr("admin.section.marker_colors") }}</a>
       <a class="{% if request.endpoint in ['admin.activity_types', 'admin.edit_activity_type'] %}is-active{% endif %}" href="{{ url_for('admin.activity_types') }}">{{ tr("admin.section.activity_types") }}</a>
       <a class="{% if request.endpoint in ['admin.link_types', 'admin.edit_link_type'] %}is-active{% endif %}" href="{{ url_for('admin.link_types') }}">{{ tr("admin.section.link_types") }}</a>

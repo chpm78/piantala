@@ -36,6 +36,42 @@
     <form method="post" enctype="multipart/form-data" class="form-grid two-col">
       {{ form.hidden_tag() }}
 
+      {% if level >= 3 %}
+        <label class="full-width" data-section-hidden-field="true">
+          <span>{{ tr("node.cultivation_type") }}</span>
+          {{ form.cultivation_type_id(class_="input") }}
+          <small class="hint">{{ tr("node.cultivation_type_help") }}</small>
+          {% for error in form.cultivation_type_id.errors %}
+            <small class="field-error">{{ error }}</small>
+          {% endfor %}
+        </label>
+
+        <label class="full-width" data-section-hidden-field="true" data-cultivation-variant-field="true">
+          <span>{{ tr("node.cultivation_variant") }}</span>
+          <select
+            name="{{ form.cultivation_type_variant_id.name }}"
+            id="cultivation_type_variant_id"
+            class="input"
+            data-cultivation-variant-select="true"
+          >
+            <option value="0">{{ tr("node.cultivation_variant_none") }}</option>
+            {% for cultivation_variant in cultivation_variants %}
+              <option
+                value="{{ cultivation_variant.id }}"
+                data-cultivation-type-id="{{ cultivation_variant.cultivation_type_id }}"
+                {% if (form.cultivation_type_variant_id.data or 0) == cultivation_variant.id %}selected{% endif %}
+              >
+                {{ cultivation_variant.name }}
+              </option>
+            {% endfor %}
+          </select>
+          <small class="hint">{{ tr("node.cultivation_variant_help") }}</small>
+          {% for error in form.cultivation_type_variant_id.errors %}
+            <small class="field-error">{{ error }}</small>
+          {% endfor %}
+        </label>
+      {% endif %}
+
       <label>
         <span>{{ tr("node.title_label") }}</span>
         {{ form.title(class_="input") }}
@@ -224,6 +260,15 @@
                 </div>
                 <div class="stack-actions">
                   <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='display') }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_node_image', node_id=node.id, image_role='display') }}">
+                    {{ delete_form.hidden_tag() }}
+                    <input type="hidden" name="next_url" value="{{ url_for('main.edit_node', node_id=node.id) }}">
+                    <label class="inline-check">
+                      {{ delete_form.remove_files(id="delete-node-display-remove-files-" ~ node.id) }}
+                      <span>{{ tr("common.remove_uploaded_files") }}</span>
+                    </label>
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this image?">{{ tr("common.delete") }}</button>
+                  </form>
                 </div>
               </div>
             {% endif %}
@@ -238,6 +283,15 @@
                 </div>
                 <div class="stack-actions">
                   <a class="button button-secondary button-small" href="{{ url_for('main.edit_node_image', node_id=node.id, image_role='map') }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('main.delete_node_image', node_id=node.id, image_role='map') }}">
+                    {{ delete_form.hidden_tag() }}
+                    <input type="hidden" name="next_url" value="{{ url_for('main.edit_node', node_id=node.id) }}">
+                    <label class="inline-check">
+                      {{ delete_form.remove_files(id="delete-node-map-remove-files-" ~ node.id) }}
+                      <span>{{ tr("common.remove_uploaded_files") }}</span>
+                    </label>
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this image?">{{ tr("common.delete") }}</button>
+                  </form>
                 </div>
               </div>
             {% endif %}

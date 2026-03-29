@@ -13,6 +13,9 @@ from .extensions import db
 from .forms import (
     ActionForm,
     ActivityTypeForm,
+    CultivationTypeForm,
+    CultivationTypeImageForm,
+    CultivationTypeVariantForm,
     DeleteForm,
     HomeAssistantSettingsForm,
     LinkTypeForm,
@@ -22,6 +25,9 @@ from .forms import (
 from .media import Image, relative_upload_to_fs_path
 from .models import (
     ActivityType,
+    CultivationType,
+    CultivationTypeImage,
+    CultivationTypeVariant,
     GardenSettings,
     HomeAssistantEntityCatalog,
     HomeAssistantSettings,
@@ -36,7 +42,7 @@ from .models import (
     TranslationEntry,
     User,
 )
-from .utils import permission_required
+from .utils import permission_required, save_uploaded_file
 from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 
@@ -113,6 +119,37 @@ def _upload_directory_size(upload_dir: Path) -> int:
     return total_size
 
 
+def _normalized_optional_text(value: str | None) -> str | None:
+    """Return a trimmed text value or None when it is empty.
+
+    Parameters:
+        value: Raw text value collected from forms or database rows.
+    """
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _cultivation_type_signature(
+    botanical_name: str | None,
+    common_name: str | None,
+    life_cycle: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Return the normalized signature used to deduplicate cultivation types.
+
+    Parameters:
+        botanical_name: Botanical cultivation name.
+        common_name: Common cultivation name.
+        life_cycle: Annual/perennial value, when defined.
+    """
+    return (
+        _normalized_optional_text(botanical_name),
+        _normalized_optional_text(common_name),
+        _normalized_optional_text(life_cycle),
+    )
+
+
 def _runtime_package_version(distribution_name: str) -> str:
     """Return the installed version for one Python distribution name.
 
@@ -182,6 +219,14 @@ def _image_usage_map() -> dict[str, list[dict[str, str]]]:
             {
                 "label": f"Activity image · {image.activity.node.level_label} · {image.activity.node.title}",
                 "target": url_for("main.node_detail", node_id=image.activity.node_id),
+            }
+        )
+
+    for image in CultivationTypeImage.query.join(CultivationType).order_by(CultivationTypeImage.id).all():
+        usage_map[image.image_path].append(
+            {
+                "label": f"Cultivation type image · {image.cultivation_type.selector_label}",
+                "target": url_for("admin.edit_cultivation_type", cultivation_type_id=image.cultivation_type_id),
             }
         )
 
@@ -1036,3 +1081,354 @@ def delete_link_type(link_type_id: int):
             db.session.commit()
             flash("Link type deleted.", "success")
     return redirect(url_for("admin.link_types"))
+
+
+@bp.route("/cultivation-types", methods=["GET"])
+@login_required
+@permission_required("manage_content")
+def cultivation_types():
+    """Create and list cultivation types used when loading cultivations."""
+    return render_template(
+        "cultivation_types.html",
+        delete_form=DeleteForm(),
+        cultivation_types=CultivationType.query.order_by(
+            CultivationType.botanical_name,
+            CultivationType.common_name,
+            CultivationType.id,
+        ).all(),
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-types/new", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def create_cultivation_type():
+    """Create one cultivation type in a dedicated form page."""
+    form = CultivationTypeForm()
+
+    if form.validate_on_submit():
+        signature = _cultivation_type_signature(
+            form.botanical_name.data,
+            form.common_name.data,
+            form.life_cycle.data,
+        )
+        duplicate = next(
+            (
+                cultivation_type
+                for cultivation_type in CultivationType.query.order_by(CultivationType.id).all()
+                if _cultivation_type_signature(
+                    cultivation_type.botanical_name,
+                    cultivation_type.common_name,
+                    cultivation_type.life_cycle,
+                ) == signature
+            ),
+            None,
+        )
+        if duplicate is not None:
+            if not duplicate.external_url:
+                duplicate.external_url = _normalized_optional_text(form.external_url.data)
+            db.session.commit()
+            flash("That cultivation type already exists.", "warning")
+            return redirect(url_for("admin.edit_cultivation_type", cultivation_type_id=duplicate.id))
+        else:
+            db.session.add(
+                CultivationType(
+                    botanical_name=_normalized_optional_text(form.botanical_name.data),
+                    common_name=_normalized_optional_text(form.common_name.data),
+                    life_cycle=_normalized_optional_text(form.life_cycle.data),
+                    external_url=_normalized_optional_text(form.external_url.data),
+                )
+            )
+            db.session.commit()
+            flash("Cultivation type created.", "success")
+            return redirect(url_for("admin.cultivation_types"))
+
+    return render_template(
+        "cultivation_type_form.html",
+        form=form,
+        cultivation_type=None,
+        delete_form=DeleteForm(),
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-types/<int:cultivation_type_id>/edit", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def edit_cultivation_type(cultivation_type_id: int):
+    """Edit one cultivation type and manage its reference images.
+
+    Parameters:
+        cultivation_type_id: Identifier of the cultivation type being edited.
+    """
+    cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
+    form = CultivationTypeForm(obj=cultivation_type)
+
+    if form.validate_on_submit():
+        signature = _cultivation_type_signature(
+            form.botanical_name.data,
+            form.common_name.data,
+            form.life_cycle.data,
+        )
+        duplicate = next(
+            (
+                candidate
+                for candidate in CultivationType.query.order_by(CultivationType.id).all()
+                if candidate.id != cultivation_type.id
+                and _cultivation_type_signature(
+                    candidate.botanical_name,
+                    candidate.common_name,
+                    candidate.life_cycle,
+                ) == signature
+            ),
+            None,
+        )
+        if duplicate is not None:
+            flash("A cultivation type with the same names and lifecycle already exists.", "warning")
+        else:
+            cultivation_type.botanical_name = _normalized_optional_text(form.botanical_name.data)
+            cultivation_type.common_name = _normalized_optional_text(form.common_name.data)
+            cultivation_type.life_cycle = _normalized_optional_text(form.life_cycle.data)
+            cultivation_type.external_url = _normalized_optional_text(form.external_url.data)
+            db.session.commit()
+            flash("Cultivation type updated.", "success")
+            return redirect(url_for("admin.cultivation_types"))
+
+    return render_template(
+        "cultivation_type_form.html",
+        form=form,
+        cultivation_type=cultivation_type,
+        delete_form=DeleteForm(),
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-types/<int:cultivation_type_id>/variants", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def cultivation_type_variants(cultivation_type_id: int):
+    """Create and list variants for one cultivation type.
+
+    Parameters:
+        cultivation_type_id: Identifier of the cultivation type whose variants are managed.
+    """
+    cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
+    form = CultivationTypeVariantForm()
+
+    if form.validate_on_submit():
+        variant_name = (form.name.data or "").strip()
+        duplicate = next(
+            (
+                variant
+                for variant in cultivation_type.variants
+                if variant.name.casefold() == variant_name.casefold()
+            ),
+            None,
+        )
+        if duplicate is not None:
+            flash("A variant with that name already exists for this cultivation type.", "warning")
+        else:
+            db.session.add(
+                CultivationTypeVariant(
+                    cultivation_type=cultivation_type,
+                    name=variant_name,
+                    sort_order=form.sort_order.data or 0,
+                )
+            )
+            db.session.commit()
+            flash("Variant created.", "success")
+            return redirect(url_for("admin.cultivation_type_variants", cultivation_type_id=cultivation_type.id))
+
+    return render_template(
+        "cultivation_type_variants.html",
+        cultivation_type=cultivation_type,
+        form=form,
+        delete_form=DeleteForm(),
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-type-variants/<int:variant_id>/edit", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def edit_cultivation_type_variant(variant_id: int):
+    """Edit one cultivation variant.
+
+    Parameters:
+        variant_id: Identifier of the cultivation variant being edited.
+    """
+    variant = CultivationTypeVariant.query.get_or_404(variant_id)
+    cultivation_type = variant.cultivation_type
+    form = CultivationTypeVariantForm(obj=variant)
+
+    if form.validate_on_submit():
+        variant_name = (form.name.data or "").strip()
+        duplicate = next(
+            (
+                candidate
+                for candidate in cultivation_type.variants
+                if candidate.id != variant.id and candidate.name.casefold() == variant_name.casefold()
+            ),
+            None,
+        )
+        if duplicate is not None:
+            flash("A variant with that name already exists for this cultivation type.", "warning")
+        else:
+            variant.name = variant_name
+            variant.sort_order = form.sort_order.data or 0
+            db.session.commit()
+            flash("Variant updated.", "success")
+            return redirect(url_for("admin.cultivation_type_variants", cultivation_type_id=cultivation_type.id))
+
+    return render_template(
+        "cultivation_type_variant_form.html",
+        cultivation_type=cultivation_type,
+        variant=variant,
+        form=form,
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-type-variants/<int:variant_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_cultivation_type_variant(variant_id: int):
+    """Delete one cultivation variant when it is no longer used by nodes.
+
+    Parameters:
+        variant_id: Identifier of the cultivation variant to remove.
+    """
+    variant = CultivationTypeVariant.query.get_or_404(variant_id)
+    cultivation_type_id = variant.cultivation_type_id
+    form = DeleteForm()
+    if form.validate_on_submit():
+        if GardenNode.query.filter_by(cultivation_type_variant_id=variant.id).first() is not None:
+            flash("This variant is already used by cultivations and cannot be deleted.", "warning")
+        else:
+            db.session.delete(variant)
+            db.session.commit()
+            flash("Variant deleted.", "success")
+    return redirect(url_for("admin.cultivation_type_variants", cultivation_type_id=cultivation_type_id))
+
+
+@bp.route("/cultivation-types/<int:cultivation_type_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_cultivation_type(cultivation_type_id: int):
+    """Delete a cultivation type when it is no longer used by nodes.
+
+    Parameters:
+        cultivation_type_id: Identifier of the cultivation type to remove.
+    """
+    cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
+    form = DeleteForm()
+    if form.validate_on_submit():
+        if GardenNode.query.filter_by(cultivation_type_id=cultivation_type.id).first() is not None:
+            flash("This cultivation type is already used by cultivations and cannot be deleted.", "warning")
+        else:
+            db.session.delete(cultivation_type)
+            db.session.commit()
+            flash("Cultivation type deleted.", "success")
+    return redirect(url_for("admin.cultivation_types"))
+
+
+@bp.route("/cultivation-types/<int:cultivation_type_id>/images/new", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def add_cultivation_type_image(cultivation_type_id: int):
+    """Upload one image linked to a cultivation type.
+
+    Parameters:
+        cultivation_type_id: Identifier of the cultivation type receiving the image.
+    """
+    cultivation_type = CultivationType.query.get_or_404(cultivation_type_id)
+    form = CultivationTypeImageForm()
+
+    if form.validate_on_submit():
+        if form.image.data is None or not form.image.data.filename:
+            form.image.errors.append("Choose an image to upload.")
+        else:
+            image_path = save_uploaded_file(
+                form.image.data,
+                "cultivation-type",
+                image_kind="node_photo",
+                subfolder=f"cultivation-types/{cultivation_type.id}",
+            )
+            image_title = (form.title.data or "").strip() or Path(form.image.data.filename).stem
+            db.session.add(
+                CultivationTypeImage(
+                    cultivation_type=cultivation_type,
+                    title=image_title,
+                    caption=_normalized_optional_text(form.caption.data),
+                    image_path=image_path,
+                    sort_order=form.sort_order.data or 0,
+                )
+            )
+            db.session.commit()
+            flash("Cultivation type image added.", "success")
+            return redirect(url_for("admin.edit_cultivation_type", cultivation_type_id=cultivation_type.id))
+
+    return render_template(
+        "cultivation_type_image_form.html",
+        form=form,
+        cultivation_type=cultivation_type,
+        image_record=None,
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-type-images/<int:image_id>/edit", methods=["GET", "POST"])
+@login_required
+@permission_required("manage_content")
+def edit_cultivation_type_image(image_id: int):
+    """Edit one cultivation type image and optionally replace the file.
+
+    Parameters:
+        image_id: Identifier of the cultivation type image being edited.
+    """
+    image_record = CultivationTypeImage.query.get_or_404(image_id)
+    cultivation_type = image_record.cultivation_type
+    form = CultivationTypeImageForm(obj=image_record)
+
+    if form.validate_on_submit():
+        image_record.title = (form.title.data or "").strip() or image_record.title
+        image_record.caption = _normalized_optional_text(form.caption.data)
+        image_record.sort_order = form.sort_order.data or 0
+        if form.image.data is not None and form.image.data.filename:
+            image_record.image_path = save_uploaded_file(
+                form.image.data,
+                "cultivation-type",
+                image_kind="node_photo",
+                subfolder=f"cultivation-types/{cultivation_type.id}",
+            )
+        db.session.commit()
+        flash("Cultivation type image updated.", "success")
+        return redirect(url_for("admin.edit_cultivation_type", cultivation_type_id=cultivation_type.id))
+
+    return render_template(
+        "cultivation_type_image_form.html",
+        form=form,
+        cultivation_type=cultivation_type,
+        image_record=image_record,
+        settings=GardenSettings.get_or_create(),
+    )
+
+
+@bp.route("/cultivation-type-images/<int:image_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_cultivation_type_image(image_id: int):
+    """Delete one cultivation type image.
+
+    Parameters:
+        image_id: Identifier of the cultivation type image to remove.
+    """
+    image_record = CultivationTypeImage.query.get_or_404(image_id)
+    cultivation_type_id = image_record.cultivation_type_id
+    form = DeleteForm()
+    if form.validate_on_submit():
+        db.session.delete(image_record)
+        db.session.commit()
+        flash("Cultivation type image deleted.", "success")
+    return redirect(url_for("admin.edit_cultivation_type", cultivation_type_id=cultivation_type_id))

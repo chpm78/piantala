@@ -35,6 +35,15 @@
 
         <article class="card">
           <div class="card-body">
+            <p class="eyebrow">{{ tr("admin.section.cultivation_types") }}</p>
+            <h3><a class="card-title-link" href="{{ url_for('admin.cultivation_types') }}">{{ tr("admin.section.cultivation_types") }}</a></h3>
+            <p>{{ tr("admin.card.cultivation_types") }}</p>
+            <a class="text-link" href="{{ url_for('admin.cultivation_types') }}">{{ tr("common.open") }}</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-body">
             <p class="eyebrow">{{ tr("admin.section.marker_colors") }}</p>
             <h3><a class="card-title-link" href="{{ url_for('admin.marker_colors') }}">{{ tr("admin.section.marker_colors") }}</a></h3>
             <p>{{ tr("admin.card.marker_colors") }}</p>

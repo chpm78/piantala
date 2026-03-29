@@ -30,6 +30,7 @@
       class="form-grid"
       data-photo-import-editor="true"
       data-photo-import-existing-src="{{ url_for('static', filename=photo.image_path) }}"
+      data-photo-import-role-select="image_role"
     >
       {{ form.hidden_tag() }}
 
@@ -43,7 +44,7 @@
 
       <label>
         <span>{{ tr("node.image_usage") }}</span>
-        {{ form.image_role(class_="input") }}
+        {{ form.image_role(class_="input", id="image_role") }}
         {% for error in form.image_role.errors %}
           <small class="field-error">{{ error }}</small>
         {% endfor %}

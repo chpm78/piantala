@@ -24,6 +24,8 @@ from .home_assistant import HomeAssistantError, fetch_entity_history
 from .media import extract_exif_taken_at, filename_stem, remove_unreferenced_uploads
 from .models import (
     ActivityType,
+    CultivationType,
+    CultivationTypeVariant,
     DEFAULT_IRRIGATION_ZONE_COLOR,
     DEFAULT_IRRIGATION_ZONE_TEXTURE,
     GardenNode,
@@ -461,6 +463,30 @@ def _available_cultivation_years(node: GardenNode) -> list[int]:
     return sorted(years, reverse=True)
 
 
+def _matches_selected_cultivation_year(child: GardenNode, selected_year: int | None) -> bool:
+    """Return whether a child cultivation should be visible for a selected year.
+
+    Parameters:
+        child: Child cultivation or bed being evaluated.
+        selected_year: Year selected in the UI, or None to disable year filtering.
+    """
+    if selected_year is None:
+        return True
+
+    if child.life_cycle == "annual":
+        return child.effective_cultivation_year == selected_year
+
+    if child.life_cycle == "perennial":
+        if child.planting_date is None:
+            return True
+        if child.planting_date.year > selected_year:
+            return False
+        if child.death_year is not None and child.death_year < selected_year:
+            return False
+
+    return True
+
+
 def _clone_scope_candidates(
     node: GardenNode,
     *,
@@ -883,6 +909,21 @@ def node_detail(node_id: int):
     ha_history_range = requested_history_range if requested_history_range in {"1d", "7d"} else "1d"
     display_image_path = node.display_image
     navigation_image_path = node.map_view_image
+    top_gallery_images: list[dict[str, str]] = []
+    seen_gallery_paths: set[str] = set()
+
+    def add_gallery_image(path: str | None, label: str) -> None:
+        if not path or path in seen_gallery_paths:
+            return
+        seen_gallery_paths.add(path)
+        top_gallery_images.append({"path": path, "label": label})
+
+    add_gallery_image(navigation_image_path, "Map")
+    add_gallery_image(display_image_path, "Display")
+    for photo in ordered_photos:
+        add_gallery_image(photo.image_path, photo.title or "Photo")
+
+    show_overlay_filters = node.node_type == "section"
     visible_children = list(node.children)
     has_dead_children = any(child.is_dead for child in visible_children)
     image_children = [
@@ -948,6 +989,8 @@ def node_detail(node_id: int):
         cultivation_history=cultivation_history,
         display_image_path=display_image_path,
         navigation_image_path=navigation_image_path,
+        top_gallery_images=top_gallery_images,
+        show_overlay_filters=show_overlay_filters,
         ordered_photos=ordered_photos,
         prospect_photo=prospect_photo,
         map_photo=map_photo,
@@ -1009,14 +1052,24 @@ def manage_cultivation_positions(node_id: int):
         flash("Add a map image to this node before managing cultivation positions.", "warning")
         return redirect(url_for("main.edit_node", node_id=node.id))
 
+    raw_year = request.args.get("year")
+    selected_year = request.args.get("year", type=int) if raw_year not in {None, ""} else None
+    available_cultivation_years = _available_cultivation_years(node)
+    if raw_year is None and available_cultivation_years:
+        selected_year = available_cultivation_years[0]
+
     manageable_children = [
         child
         for child in node.children
-        if child.has_hotspot
+        if child.has_hotspot and _matches_selected_cultivation_year(child, selected_year)
     ]
     if not manageable_children:
         flash("There are no child cultivations with positions to manage yet.", "warning")
-        return redirect(url_for("main.node_detail", node_id=node.id))
+        return redirect(
+            url_for("main.node_detail", node_id=node.id, year=selected_year)
+            if selected_year is not None
+            else url_for("main.node_detail", node_id=node.id)
+        )
 
     form = DeleteForm()
     if form.validate_on_submit():
@@ -1046,12 +1099,18 @@ def manage_cultivation_positions(node_id: int):
 
         db.session.commit()
         flash(f"Updated cultivation positions for {updated_count} item(s).", "success")
-        return redirect(url_for("main.node_detail", node_id=node.id))
+        return redirect(
+            url_for("main.manage_cultivation_positions", node_id=node.id, year=selected_year)
+            if selected_year is not None
+            else url_for("main.manage_cultivation_positions", node_id=node.id)
+        )
 
     return render_template(
         "manage_cultivation_positions.html",
         node=node,
         manageable_children=manageable_children,
+        selected_year=selected_year,
+        available_cultivation_years=available_cultivation_years,
         positions_payload=[_serialize_manageable_child(child) for child in manageable_children],
         delete_form=form,
         settings=_settings(),
@@ -1173,7 +1232,32 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         flash("Nodes can only go down to level 4.", "danger")
         return redirect(url_for("main.index"))
 
-    form = NodeForm(obj=node)
+    cultivation_types = CultivationType.query.order_by(
+        CultivationType.botanical_name,
+        CultivationType.common_name,
+        CultivationType.id,
+    ).all()
+    cultivation_variants = CultivationTypeVariant.query.order_by(
+        CultivationTypeVariant.cultivation_type_id,
+        CultivationTypeVariant.sort_order,
+        CultivationTypeVariant.name,
+        CultivationTypeVariant.id,
+    ).all()
+    cultivation_types_by_id = {
+        cultivation_type.id: cultivation_type
+        for cultivation_type in cultivation_types
+        if cultivation_type.id is not None
+    }
+    cultivation_variants_by_id = {
+        cultivation_variant.id: cultivation_variant
+        for cultivation_variant in cultivation_variants
+        if cultivation_variant.id is not None
+    }
+    form = NodeForm(
+        obj=node,
+        cultivation_types_by_id=cultivation_types_by_id,
+        cultivation_variants_by_id=cultivation_variants_by_id,
+    )
     marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
     labels = _localized_labels()
     form.node_type.choices = [
@@ -1199,6 +1283,18 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         ("", labels.get("node.not_set", "Not set")),
         ("annual", labels.get("node.annual", "Annual")),
         ("perennial", labels.get("node.perennial", "Perennial")),
+    ]
+    form.cultivation_type_id.choices = [(0, labels.get("node.cultivation_type_none", "Choose cultivation type"))] + [
+        (cultivation_type.id, cultivation_type.selector_label)
+        for cultivation_type in cultivation_types
+        if cultivation_type.id is not None and cultivation_type.selector_label
+    ]
+    form.cultivation_type_variant_id.choices = [
+        (0, labels.get("node.cultivation_variant_none", "Choose variant"))
+    ] + [
+        (cultivation_variant.id, cultivation_variant.name)
+        for cultivation_variant in cultivation_variants
+        if cultivation_variant.id is not None
     ]
     form.marker_color_id.choices = [
         (marker_color.id, f"{marker_color.name} ({marker_color.hex_value})")
@@ -1232,11 +1328,15 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             form.marker_color_id.data = default_marker_color_id
         if level in {3, 4}:
             form.life_cycle.data = ""
+            form.cultivation_type_id.data = 0
+            form.cultivation_type_variant_id.data = 0
     elif request.method == "GET" and node is not None:
         form.additional_positions_json.data = json.dumps(
             [{"x": x, "y": y} for x, y in node.point_positions]
         )
         form.cultivation_year.data = node.effective_cultivation_year
+        form.cultivation_type_id.data = node.cultivation_type_id or 0
+        form.cultivation_type_variant_id.data = node.cultivation_type_variant_id or 0
         if form.marker_color_id.data is None:
             default_marker_color_id = _default_marker_color_id(node.node_type, marker_colors)
             if default_marker_color_id is not None:
@@ -1244,11 +1344,15 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         form.hero_image_role.data = "display"
 
     if form.validate_on_submit():
+        selected_cultivation_type = cultivation_types_by_id.get(form.cultivation_type_id.data or 0)
+        selected_cultivation_variant = cultivation_variants_by_id.get(form.cultivation_type_variant_id.data or 0)
         if node is None:
             node = GardenNode(parent=parent, level=level)
             db.session.add(node)
 
         node.title = form.title.data.strip()
+        node.cultivation_type = selected_cultivation_type
+        node.cultivation_type_variant = selected_cultivation_variant
         node.node_type = form.node_type.data
         node.summary = form.summary.data.strip() if form.summary.data else None
         node.notes = form.notes.data.strip() if form.notes.data else None
@@ -1258,9 +1362,15 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             node.cultivation_year = None
             node.planting_date = None
             node.death_year = None
+            node.cultivation_type = None
+            node.cultivation_type_variant = None
         else:
             node.quantity = form.quantity.data or 1
-            node.life_cycle = form.life_cycle.data or None
+            node.life_cycle = (
+                selected_cultivation_type.life_cycle
+                if selected_cultivation_type is not None and selected_cultivation_type.life_cycle
+                else (form.life_cycle.data or None)
+            )
             node.cultivation_year = (
                 form.cultivation_year.data
                 if node.life_cycle == "annual"
@@ -1394,6 +1504,8 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
         settings=settings,
         use_geo_map=use_geo_map,
         marker_colors=marker_colors,
+        cultivation_types=cultivation_types,
+        cultivation_variants=cultivation_variants,
         marker_icon_suggestions=MARKER_ICON_SUGGESTIONS,
         irrigation_zones=node.irrigation_zones if node is not None else [],
         delete_form=DeleteForm(),
@@ -1738,8 +1850,45 @@ def edit_node_image(node_id: int, image_role: str):
         node=node,
         image_role=image_role,
         current_image_path=current_path,
+        delete_form=DeleteForm(),
         settings=_settings(),
     )
+
+
+@bp.route("/nodes/<int:node_id>/images/<string:image_role>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_content")
+def delete_node_image(node_id: int, image_role: str):
+    """Delete one dedicated node image for the selected role.
+
+    Parameters:
+        node_id: Identifier of the node whose image should be removed.
+        image_role: Dedicated image role, either ``display`` or ``map``.
+    """
+    node = GardenNode.query.get_or_404(node_id)
+    if image_role not in {"display", "map"}:
+        flash("Unknown node image role.", "danger")
+        return redirect(url_for("main.edit_node", node_id=node.id))
+
+    current_path = _node_image_role_path(node, image_role)
+    form = DeleteForm()
+    next_url = request.form.get("next_url") or url_for("main.edit_node", node_id=node.id)
+    if form.validate_on_submit():
+        if not current_path:
+            flash("No image is currently stored for that role.", "warning")
+        else:
+            image_paths = {current_path} if form.remove_files.data else set()
+            if image_role == "map":
+                node.map_image_path = None
+            else:
+                node.hero_image_path = None
+            db.session.commit()
+            if image_paths:
+                removed_count = remove_unreferenced_uploads(_upload_directory(), image_paths)
+                if removed_count:
+                    flash(f"Removed {removed_count} uploaded file(s).", "success")
+            flash("Image deleted.", "success")
+    return redirect(next_url)
 
 
 @bp.route("/photos/<int:photo_id>/delete", methods=["POST"])

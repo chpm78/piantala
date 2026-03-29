@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.cultivation_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel narrow-panel">
+    <div class="breadcrumb-row">
+      <a class="text-link" href="{{ url_for('admin.cultivation_types') }}">{{ tr("cultivation_types.title") }}</a>
+      <span>/</span>
+      <a class="text-link" href="{{ url_for('admin.edit_cultivation_type', cultivation_type_id=cultivation_type.id) }}">{{ cultivation_type.selector_label }}</a>
+      <span>/</span>
+      <a class="text-link" href="{{ url_for('admin.cultivation_type_variants', cultivation_type_id=cultivation_type.id) }}">{{ tr("cultivation_types.manage_variants") }}</a>
+      <span>/</span>
+      <span>{{ variant.name if variant else tr("cultivation_types.create_variant") }}</span>
+    </div>
+
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("cultivation_types.variant") }}</p>
+        <h1>{{ tr("cultivation_types.edit_variant") if variant else tr("cultivation_types.create_variant") }}</h1>
+        <p>{{ cultivation_type.selector_label }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("cultivation_types.variant_name") }}</span>
+        {{ form.name(class_="input") }}
+        {% for error in form.name.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("cultivation_types.variant_sort_order") }}</span>
+        {{ form.sort_order(class_="input") }}
+      </label>
+
+      <div class="form-actions">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.cultivation_type_variants', cultivation_type_id=cultivation_type.id) }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

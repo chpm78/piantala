@@ -62,6 +62,45 @@ function syncNodeTypeFields() {
 }
 
 /**
+ * Filter the cultivation variant selector to the chosen cultivation type.
+ */
+function syncCultivationVariantField() {
+  const typeSelect = document.querySelector("select[name='cultivation_type_id']");
+  const variantSelect = document.querySelector("[data-cultivation-variant-select='true']");
+  const variantField = document.querySelector("[data-cultivation-variant-field='true']");
+  if (!typeSelect || !variantSelect || !variantField) {
+    return;
+  }
+
+  const selectedTypeId = typeSelect.value || "0";
+  let visibleVariantCount = 0;
+  let selectedOptionStillVisible = false;
+
+  Array.from(variantSelect.options).forEach((option, index) => {
+    if (index === 0) {
+      option.hidden = false;
+      return;
+    }
+    const optionTypeId = option.dataset.cultivationTypeId || "";
+    const shouldShow = selectedTypeId !== "0" && optionTypeId === selectedTypeId;
+    option.hidden = !shouldShow;
+    if (shouldShow) {
+      visibleVariantCount += 1;
+      if (option.selected) {
+        selectedOptionStillVisible = true;
+      }
+    }
+  });
+
+  if (!selectedOptionStillVisible) {
+    variantSelect.value = "0";
+  }
+
+  variantField.hidden = selectedTypeId === "0" || visibleVariantCount === 0;
+  variantSelect.disabled = variantField.hidden;
+}
+
+/**
  * Keep the cultivation year aligned with the planting date for annual records.
  */
 function syncCultivationYearFromPlantingDate() {
@@ -1211,12 +1250,18 @@ document.addEventListener("change", (event) => {
 
   if (event.target.matches("select[name='node_type']")) {
     syncNodeTypeFields();
+    syncCultivationVariantField();
     syncCultivationYearFromPlantingDate();
     syncMarkerPreview();
   }
 
+  if (event.target.matches("select[name='cultivation_type_id']")) {
+    syncCultivationVariantField();
+  }
+
   if (event.target.matches("select[name='life_cycle']")) {
     syncNodeTypeFields();
+    syncCultivationVariantField();
     syncCultivationYearFromPlantingDate();
   }
 
@@ -1924,6 +1969,11 @@ function initPhotoImportEditor() {
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
     const existingImageSrc = form.dataset.photoImportExistingSrc || "";
+    const roleSelect = document.getElementById(form.dataset.photoImportRoleSelect || "") || form.querySelector("select[name$='image_role']");
+
+    const currentImportRole = () => (
+      (form.dataset.photoImportFixedRole || roleSelect?.value || "").toLowerCase()
+    );
 
     const setPreviewDirty = () => {
       state.previewDirty = true;
@@ -2002,8 +2052,14 @@ function initPhotoImportEditor() {
     };
 
     const resetEditor = (markDirty = true) => {
-      state.rect = { x: 12, y: 12, width: 76, height: 70 };
-      syncReferenceLineToCrop();
+      if (currentImportRole() === "map") {
+        state.rect = { x: 12, y: 12, width: 76, height: 70 };
+        syncReferenceLineToCrop();
+      } else {
+        state.rect = { x: 0, y: 0, width: 100, height: 100 };
+        state.lineStart = { x: 12, y: 88 };
+        state.lineEnd = { x: 88, y: 88 };
+      }
       render();
       if (markDirty) {
         setPreviewDirty();
@@ -2427,6 +2483,13 @@ function initPhotoImportEditor() {
         return;
       }
       resetEditor();
+    });
+
+    roleSelect?.addEventListener("change", () => {
+      if (!state.imageLoaded) {
+        return;
+      }
+      resetEditor(true);
     });
 
     previewButton?.addEventListener("click", () => {
@@ -3065,6 +3128,7 @@ window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
  */
 window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
   syncNodeTypeFields();
+  syncCultivationVariantField();
   syncMarkerPreview();
   initOverlayEditors();
   initCultivationPositionManagers();
@@ -3085,6 +3149,7 @@ if (window.L) {
 
 syncProviderPanels();
 syncNodeTypeFields();
+syncCultivationVariantField();
 syncCultivationYearFromPlantingDate();
 initOverlayEditors();
 initCultivationPositionManagers();

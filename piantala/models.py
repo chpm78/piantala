@@ -73,6 +73,56 @@ def _clamp_percent(value: float, minimum: float = 0.0, maximum: float = 100.0) -
     return max(minimum, min(maximum, value))
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+    """Return a trimmed text value or None when it is empty.
+
+    Parameters:
+        value: Raw text value collected from the database or a form.
+    """
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _normalize_variant_lines(value: str | None) -> list[str]:
+    """Return a normalized list of cultivation variants from free text.
+
+    Parameters:
+        value: Raw variant text, optionally containing line-separated values.
+    """
+    if value is None:
+        return []
+    variants: list[str] = []
+    seen: set[str] = set()
+    for raw_line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        cleaned = raw_line.strip()
+        normalized_key = cleaned.casefold()
+        if not cleaned or normalized_key in seen:
+            continue
+        seen.add(normalized_key)
+        variants.append(cleaned)
+    return variants
+
+
+def _parse_legacy_cultivation_title(title: str | None) -> tuple[str | None, str | None]:
+    """Split an old cultivation title into botanical and common names.
+
+    Parameters:
+        title: Legacy title text, often stored as `botanical - common`.
+    """
+    cleaned_title = _normalize_optional_text(title)
+    if cleaned_title is None:
+        return None, None
+
+    for separator in (" - ", " – ", " — ", "-", "–", "—"):
+        if separator in cleaned_title:
+            botanical_name, _separator, common_name = cleaned_title.partition(separator)
+            return _normalize_optional_text(botanical_name), _normalize_optional_text(common_name)
+
+    return None, cleaned_title
+
+
 user_roles = db.Table(
     "user_roles",
     db.Column("user_id", db.Integer, db.ForeignKey("users.id"), primary_key=True),
@@ -232,12 +282,117 @@ class MarkerColor(AuditMixin, db.Model):
     )
 
 
+class CultivationType(AuditMixin, db.Model):
+    __tablename__ = "cultivation_types"
+
+    id = db.Column(db.Integer, primary_key=True)
+    botanical_name = db.Column(db.String(160), nullable=True)
+    common_name = db.Column(db.String(160), nullable=True)
+    variant = db.Column(db.String(160), nullable=True)
+    life_cycle = db.Column(db.String(16), nullable=True)
+    external_url = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    nodes = db.relationship(
+        "GardenNode",
+        back_populates="cultivation_type",
+        order_by="GardenNode.title",
+    )
+    variants = db.relationship(
+        "CultivationTypeVariant",
+        back_populates="cultivation_type",
+        cascade="all, delete-orphan",
+        order_by="CultivationTypeVariant.sort_order, CultivationTypeVariant.name, CultivationTypeVariant.id",
+    )
+    images = db.relationship(
+        "CultivationTypeImage",
+        back_populates="cultivation_type",
+        cascade="all, delete-orphan",
+        order_by="CultivationTypeImage.sort_order, CultivationTypeImage.id",
+    )
+
+    @property
+    def selector_label(self) -> str:
+        """Return the cultivation label shown in selectors."""
+        parts = [self.botanical_name, self.common_name]
+        cleaned_parts = [part.strip() for part in parts if part and part.strip()]
+        return ", ".join(cleaned_parts)
+
+    @property
+    def variants_list(self) -> list[str]:
+        """Return the cultivation variants defined for this type."""
+        if self.variants:
+            return [variant.name for variant in self.variants if variant.name]
+        return _normalize_variant_lines(self.variant)
+
+    @property
+    def variants_display(self) -> str:
+        """Return cultivation variants joined with line breaks for templates."""
+        return "\n".join(self.variants_list)
+
+    @property
+    def default_node_title(self) -> str:
+        """Return the suggested node title for cultivations using this type."""
+        base_label = _normalize_optional_text(self.common_name) or _normalize_optional_text(self.botanical_name)
+        variant = self.variants_list[0] if self.variants_list else None
+        if base_label and variant:
+            return f"{base_label} ({variant})"
+        if base_label:
+            return base_label
+        return variant or ""
+
+    def default_node_title_for_variant(self, variant_name: str | None = None) -> str:
+        """Return the suggested node title using an optional selected variant.
+
+        Parameters:
+            variant_name: Variant name chosen for the cultivation, if any.
+        """
+        base_label = _normalize_optional_text(self.common_name) or _normalize_optional_text(self.botanical_name)
+        selected_variant = _normalize_optional_text(variant_name)
+        if base_label and selected_variant:
+            return f"{base_label} ({selected_variant})"
+        if base_label:
+            return base_label
+        return selected_variant or ""
+
+
+class CultivationTypeVariant(AuditMixin, db.Model):
+    __tablename__ = "cultivation_type_variants"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cultivation_type_id = db.Column(db.Integer, db.ForeignKey("cultivation_types.id"), nullable=False)
+    name = db.Column(db.String(160), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    cultivation_type = db.relationship("CultivationType", back_populates="variants")
+    nodes = db.relationship(
+        "GardenNode",
+        back_populates="cultivation_type_variant",
+        order_by="GardenNode.title",
+    )
+
+
 class GardenNode(AuditMixin, db.Model):
     __tablename__ = "garden_nodes"
 
     id = db.Column(db.Integer, primary_key=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=True)
     cloned_from_node_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=True)
+    cultivation_type_id = db.Column(db.Integer, db.ForeignKey("cultivation_types.id"), nullable=True)
+    cultivation_type_variant_id = db.Column(db.Integer, db.ForeignKey("cultivation_type_variants.id"), nullable=True)
     level = db.Column(db.Integer, nullable=False)
     node_type = db.Column(db.String(32), nullable=False)
     title = db.Column(db.String(120), nullable=False)
@@ -294,6 +449,8 @@ class GardenNode(AuditMixin, db.Model):
         back_populates="cloned_nodes",
         foreign_keys=[cloned_from_node_id],
     )
+    cultivation_type = db.relationship("CultivationType", back_populates="nodes")
+    cultivation_type_variant = db.relationship("CultivationTypeVariant", back_populates="nodes")
     marker_color = db.relationship("MarkerColor", back_populates="nodes")
     children = db.relationship(
         "GardenNode",
@@ -653,6 +810,20 @@ class NodePhoto(AuditMixin, db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
     node = db.relationship("GardenNode", back_populates="photos")
+
+
+class CultivationTypeImage(AuditMixin, db.Model):
+    __tablename__ = "cultivation_type_images"
+
+    id = db.Column(db.Integer, primary_key=True)
+    cultivation_type_id = db.Column(db.Integer, db.ForeignKey("cultivation_types.id"), nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    caption = db.Column(db.Text, nullable=True)
+    image_path = db.Column(db.String(255), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+
+    cultivation_type = db.relationship("CultivationType", back_populates="images")
 
 
 class ActivityType(AuditMixin, db.Model):
@@ -1302,6 +1473,103 @@ def ensure_seed_data() -> None:
         if link_type.id is not None:
             link_type.save_localized_names(names_by_locale, overwrite=False)
 
+    cultivation_nodes = GardenNode.query.filter(
+        GardenNode.level >= 3,
+        GardenNode.node_type.in_(["bed", "plant", "custom"]),
+    ).all()
+    cultivation_type_cache: dict[tuple[str | None, str | None, str | None], CultivationType] = {}
+    for cultivation_type in CultivationType.query.order_by(CultivationType.id).all():
+        cache_key = (
+            _normalize_optional_text(cultivation_type.botanical_name),
+            _normalize_optional_text(cultivation_type.common_name),
+            _normalize_optional_text(cultivation_type.life_cycle),
+        )
+        existing_type = cultivation_type_cache.get(cache_key)
+        if existing_type is None:
+            cultivation_type_cache[cache_key] = cultivation_type
+        else:
+            merged_variants = existing_type.variants_list + cultivation_type.variants_list
+            existing_type.variant = "\n".join(_normalize_variant_lines("\n".join(merged_variants))) or None
+            for node in cultivation_type.nodes:
+                node.cultivation_type = existing_type
+            for image in cultivation_type.images:
+                image.cultivation_type = existing_type
+            db.session.delete(cultivation_type)
+
+    db.session.flush()
+
+    for cultivation_type in CultivationType.query.order_by(CultivationType.id).all():
+        variant_names = cultivation_type.variants_list
+        existing_variants_by_name = {
+            variant.name.casefold(): variant
+            for variant in cultivation_type.variants
+            if variant.name
+        }
+        for sort_order, variant_name in enumerate(variant_names):
+            normalized_name = variant_name.casefold()
+            if normalized_name in existing_variants_by_name:
+                existing_variants_by_name[normalized_name].sort_order = sort_order
+                continue
+            db.session.add(
+                CultivationTypeVariant(
+                    cultivation_type=cultivation_type,
+                    name=variant_name,
+                    sort_order=sort_order,
+                )
+            )
+
+    db.session.flush()
+    db.session.expire_all()
+
+    for node in cultivation_nodes:
+        botanical_name, common_name = _parse_legacy_cultivation_title(node.title)
+        if botanical_name is None and common_name is None:
+            continue
+
+        linked_type = node.cultivation_type
+        needs_legacy_split_repair = (
+            linked_type is not None
+            and botanical_name is not None
+            and common_name is not None
+            and _normalize_optional_text(linked_type.botanical_name) is None
+            and _normalize_optional_text(linked_type.common_name) == _normalize_optional_text(node.title)
+            and _normalize_optional_text(linked_type.variant) is None
+        )
+        cache_key = (
+            botanical_name,
+            common_name,
+            _normalize_optional_text(node.life_cycle),
+        )
+        cultivation_type = linked_type
+        if cultivation_type is None or needs_legacy_split_repair:
+            cultivation_type = cultivation_type_cache.get(cache_key)
+            if cultivation_type is None:
+                cultivation_type = CultivationType(
+                    botanical_name=botanical_name,
+                    common_name=common_name,
+                    variant=None,
+                    life_cycle=node.life_cycle,
+                )
+                db.session.add(cultivation_type)
+                db.session.flush()
+                cultivation_type_cache[cache_key] = cultivation_type
+        elif node.cultivation_type_id is not None and cultivation_type.id != node.cultivation_type_id:
+            node.cultivation_type = cultivation_type
+        node.cultivation_type = cultivation_type
+
+        if node.cultivation_type_variant_id is None and cultivation_type.variants:
+            title_text = (node.title or "").casefold()
+            matching_variants = [
+                variant
+                for variant in cultivation_type.variants
+                if variant.name and variant.name.casefold() in title_text
+            ]
+            if len(matching_variants) == 1:
+                node.cultivation_type_variant = matching_variants[0]
+
+    for cultivation_type in CultivationType.query.order_by(CultivationType.id).all():
+        cultivation_type.variant = "\n".join(cultivation_type.variants_list) or None
+
     for key, localized_values in DEFAULT_TRANSLATIONS.items():
         for locale, text_value in localized_values.items():
             entry = TranslationEntry.query.filter_by(locale=locale, key=key).first()
@@ -1747,6 +2015,14 @@ def sync_schema() -> None:
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN cloned_from_node_id INTEGER"
             ),
+            "cultivation_type_id": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN cultivation_type_id INTEGER"
+            ),
+            "cultivation_type_variant_id": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN cultivation_type_variant_id INTEGER"
+            ),
             "created_by_name": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN created_by_name VARCHAR(80)"
@@ -1884,6 +2160,76 @@ def sync_schema() -> None:
             "requires_label": (
                 "ALTER TABLE link_types "
                 "ADD COLUMN requires_label BOOLEAN NOT NULL DEFAULT 0"
+            ),
+        },
+        "cultivation_types": {
+            "created_by_name": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "botanical_name": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN botanical_name VARCHAR(160)"
+            ),
+            "common_name": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN common_name VARCHAR(160)"
+            ),
+            "variant": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN variant VARCHAR(160)"
+            ),
+            "life_cycle": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN life_cycle VARCHAR(16)"
+            ),
+            "external_url": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN external_url VARCHAR(500)"
+            ),
+            "updated_at": (
+                "ALTER TABLE cultivation_types "
+                "ADD COLUMN updated_at DATETIME"
+            ),
+        },
+        "cultivation_type_images": {
+            "created_by_name": (
+                "ALTER TABLE cultivation_type_images "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE cultivation_type_images "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "caption": (
+                "ALTER TABLE cultivation_type_images "
+                "ADD COLUMN caption TEXT"
+            ),
+            "sort_order": (
+                "ALTER TABLE cultivation_type_images "
+                "ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+            ),
+        },
+        "cultivation_type_variants": {
+            "created_by_name": (
+                "ALTER TABLE cultivation_type_variants "
+                "ADD COLUMN created_by_name VARCHAR(80)"
+            ),
+            "updated_by_name": (
+                "ALTER TABLE cultivation_type_variants "
+                "ADD COLUMN updated_by_name VARCHAR(80)"
+            ),
+            "sort_order": (
+                "ALTER TABLE cultivation_type_variants "
+                "ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+            ),
+            "updated_at": (
+                "ALTER TABLE cultivation_type_variants "
+                "ADD COLUMN updated_at DATETIME"
             ),
         },
         "node_external_links": {

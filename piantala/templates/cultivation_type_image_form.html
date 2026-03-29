@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.cultivation_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("cultivation_types.images") }}</h1>
+        <p>{{ cultivation_type.selector_label }}</p>
+      </div>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("cultivation_types.image_title") }}</span>
+        {{ form.title(class_="input") }}
+        {% for error in form.title.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("cultivation_types.image_file") }}</span>
+        {{ form.image(class_="input") }}
+        {% for error in form.image.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("cultivation_types.image_sort_order") }}</span>
+        {{ form.sort_order(class_="input") }}
+      </label>
+
+      <label class="full-width">
+        <span>{{ tr("node.description") }}</span>
+        {{ form.caption(class_="input input-textarea") }}
+      </label>
+
+      {% if image_record %}
+        <div class="full-width">
+          <a class="thumb-link" href="{{ url_for('static', filename=image_record.image_path) }}" target="_blank" rel="noreferrer">
+            <img class="thumb" src="{{ url_for('static', filename=image_record.image_path) }}" alt="{{ image_record.title }}">
+          </a>
+        </div>
+      {% endif %}
+
+      <div class="form-actions">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.edit_cultivation_type', cultivation_type_id=cultivation_type.id) }}">{{ tr("common.cancel") }}</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

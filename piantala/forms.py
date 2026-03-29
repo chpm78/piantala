@@ -285,6 +285,60 @@ class LinkTypeForm(FlaskForm):
     submit = SubmitField("Save link type")
 
 
+class CultivationTypeForm(FlaskForm):
+    botanical_name = StringField("Botanical name", validators=[Optional(), Length(max=160)])
+    common_name = StringField("Common name", validators=[Optional(), Length(max=160)])
+    life_cycle = SelectField(
+        "Life cycle",
+        choices=[
+            ("", "Not set"),
+            ("annual", "Annual"),
+            ("perennial", "Perennial"),
+        ],
+        validators=[Optional()],
+    )
+    external_url = StringField("External URL", validators=[Optional(), URL(), Length(max=500)])
+    submit = SubmitField("Save cultivation type")
+
+    def validate(self, extra_validators=None) -> bool:
+        """Validate cultivation type naming rules.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        self.botanical_name.data = (self.botanical_name.data or "").strip()
+        self.common_name.data = (self.common_name.data or "").strip()
+        self.external_url.data = (self.external_url.data or "").strip()
+
+        if not self.botanical_name.data and not self.common_name.data:
+            message = "Add at least a botanical name or a common name."
+            self.botanical_name.errors.append(message)
+            self.common_name.errors.append(message)
+            return False
+
+        return True
+
+
+class CultivationTypeImageForm(FlaskForm):
+    title = StringField("Image title", validators=[Optional(), Length(max=120)])
+    image = FileField(
+        "Image",
+        validators=[Optional(), FileAllowed(IMAGE_EXTENSIONS, "Images only.")],
+    )
+    caption = TextAreaField("Caption", validators=[Optional(), Length(max=1000)])
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    submit = SubmitField("Save image")
+
+
+class CultivationTypeVariantForm(FlaskForm):
+    name = StringField("Variant name", validators=[DataRequired(), Length(max=160)])
+    sort_order = IntegerField("Sort order", validators=[Optional()], default=0)
+    submit = SubmitField("Save variant")
+
+
 class MarkerColorForm(FlaskForm):
     name = StringField("Color name", validators=[DataRequired(), Length(max=64)])
     hex_value = StringField("Hex color", validators=[DataRequired(), Length(max=16)])
@@ -293,7 +347,9 @@ class MarkerColorForm(FlaskForm):
 
 
 class NodeForm(FlaskForm):
-    title = StringField("Title", validators=[DataRequired(), Length(max=120)])
+    title = StringField("Title", validators=[Optional(), Length(max=120)])
+    cultivation_type_id = SelectField("Cultivation type", coerce=int, validators=[Optional()], default=0)
+    cultivation_type_variant_id = SelectField("Cultivation variant", coerce=int, validators=[Optional()], default=0)
     node_type = SelectField(
         "Type",
         choices=[
@@ -458,6 +514,25 @@ class NodeForm(FlaskForm):
     is_published = BooleanField("Published", default=True)
     submit = SubmitField("Save node")
 
+    def __init__(
+        self,
+        *args,
+        cultivation_types_by_id: dict[int, object] | None = None,
+        cultivation_variants_by_id: dict[int, object] | None = None,
+        **kwargs,
+    ) -> None:
+        """Store cultivation type metadata used during node validation.
+
+        Parameters:
+            *args: Positional arguments forwarded to the WTForms base class.
+            cultivation_types_by_id: Cultivation type lookup keyed by database id.
+            cultivation_variants_by_id: Cultivation variant lookup keyed by database id.
+            **kwargs: Keyword arguments forwarded to the WTForms base class.
+        """
+        super().__init__(*args, **kwargs)
+        self.cultivation_types_by_id = cultivation_types_by_id or {}
+        self.cultivation_variants_by_id = cultivation_variants_by_id or {}
+
     def validate(self, extra_validators=None) -> bool:
         """Validate node data, including annual cultivation year rules.
 
@@ -465,6 +540,30 @@ class NodeForm(FlaskForm):
             extra_validators: Additional WTForms validators supplied by Flask-WTF.
         """
         if not super().validate(extra_validators=extra_validators):
+            return False
+
+        selected_cultivation_type = self.cultivation_types_by_id.get(self.cultivation_type_id.data or 0)
+        selected_variant = self.cultivation_variants_by_id.get(self.cultivation_type_variant_id.data or 0)
+        if selected_cultivation_type is not None:
+            if not (self.title.data or "").strip():
+                self.title.data = selected_cultivation_type.default_node_title_for_variant(
+                    selected_variant.name if selected_variant is not None else None
+                )
+            if selected_cultivation_type.life_cycle:
+                self.life_cycle.data = selected_cultivation_type.life_cycle
+            if selected_variant is not None and selected_variant.cultivation_type_id != selected_cultivation_type.id:
+                self.cultivation_type_variant_id.errors.append("Choose a variant that belongs to the selected cultivation type.")
+                return False
+            if selected_variant is None and getattr(selected_cultivation_type, "variants", None):
+                self.cultivation_type_variant_id.errors.append("Choose one variant for this cultivation type.")
+                return False
+        elif selected_variant is not None:
+            self.cultivation_type_variant_id.errors.append("Choose a cultivation type before selecting a variant.")
+            return False
+
+        self.title.data = (self.title.data or "").strip()
+        if not self.title.data:
+            self.title.errors.append("Title is required.")
             return False
 
         if self.life_cycle.data == "annual" and self.node_type.data != "section":

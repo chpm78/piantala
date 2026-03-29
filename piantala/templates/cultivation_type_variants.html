@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.cultivation_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="breadcrumb-row">
+      <a class="text-link" href="{{ url_for('admin.cultivation_types') }}">{{ tr("cultivation_types.title") }}</a>
+      <span>/</span>
+      <a class="text-link" href="{{ url_for('admin.edit_cultivation_type', cultivation_type_id=cultivation_type.id) }}">{{ cultivation_type.selector_label }}</a>
+      <span>/</span>
+      <span>{{ tr("cultivation_types.manage_variants") }}</span>
+    </div>
+
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("cultivation_types.title") }}</p>
+        <h1>{{ tr("cultivation_types.manage_variants") }}</h1>
+        <p>{{ cultivation_type.selector_label }}</p>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("cultivation_types.variant") }}</p>
+            <h2>{{ tr("cultivation_types.create_variant") }}</h2>
+          </div>
+        </div>
+
+        <form method="post" class="form-grid">
+          {{ form.hidden_tag() }}
+
+          <label>
+            <span>{{ tr("cultivation_types.variant_name") }}</span>
+            {{ form.name(class_="input") }}
+            {% for error in form.name.errors %}
+              <small class="field-error">{{ error }}</small>
+            {% endfor %}
+          </label>
+
+          <label>
+            <span>{{ tr("cultivation_types.variant_sort_order") }}</span>
+            {{ form.sort_order(class_="input") }}
+          </label>
+
+          <div>
+            {{ form.submit(class_="button", value=tr("common.save")) }}
+          </div>
+        </form>
+      </div>
+
+      <div class="settings-section">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{{ tr("cultivation_types.variant") }}</p>
+            <h2>{{ tr("cultivation_types.variant_catalog") }}</h2>
+          </div>
+        </div>
+
+        {% if cultivation_type.variants %}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ tr("cultivation_types.variant_name") }}</th>
+                  <th>{{ tr("cultivation_types.variant_sort_order") }}</th>
+                  <th>{{ tr("cultivation_types.used_count") }}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for variant in cultivation_type.variants %}
+                  <tr>
+                    <td><a class="text-link" href="{{ url_for('admin.edit_cultivation_type_variant', variant_id=variant.id) }}">{{ variant.name }}</a></td>
+                    <td>{{ variant.sort_order }}</td>
+                    <td>{{ variant.nodes|length }}</td>
+                    <td class="table-actions">
+                      <form method="post" action="{{ url_for('admin.delete_cultivation_type_variant', variant_id=variant.id) }}">
+                        {{ delete_form.hidden_tag() }}
+                        <button type="submit" class="icon-button icon-button-danger" data-confirm="Delete this variant?" aria-label="{{ tr('common.delete') }}" title="{{ tr('common.delete') }}">
+                          <span class="mdi mdi-delete-outline" aria-hidden="true"></span>
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("cultivation_types.no_variants") }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

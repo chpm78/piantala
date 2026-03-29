@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = tr("admin.section.cultivation_types") %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>{{ tr("cultivation_types.title") }}</h1>
+        <p>{{ tr("cultivation_types.description") }}</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid two-col">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ tr("cultivation_types.botanical_name") }}</span>
+        {{ form.botanical_name(class_="input") }}
+        {% for error in form.botanical_name.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("cultivation_types.common_name") }}</span>
+        {{ form.common_name(class_="input") }}
+        {% for error in form.common_name.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ tr("node.life_cycle") }}</span>
+        {{ form.life_cycle(class_="input") }}
+      </label>
+
+      <label class="full-width">
+        <span>{{ tr("cultivation_types.external_url") }}</span>
+        {{ form.external_url(class_="input") }}
+        {% for error in form.external_url.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <div class="form-actions full-width">
+        {{ form.submit(class_="button", value=tr("common.save")) }}
+        <a class="button button-secondary" href="{{ url_for('admin.cultivation_types') }}">{{ tr("common.cancel") }}</a>
+        {% if cultivation_type %}
+          <a class="button button-secondary" href="{{ url_for('admin.cultivation_type_variants', cultivation_type_id=cultivation_type.id) }}">{{ tr("cultivation_types.manage_variants") }}</a>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if cultivation_type %}
+      <div class="inline-map-help">
+        <div class="panel-header">
+          <div>
+            <h2>{{ tr("cultivation_types.variant_catalog") }}</h2>
+          </div>
+          <div class="hero-actions">
+            <a class="button button-secondary" href="{{ url_for('admin.cultivation_type_variants', cultivation_type_id=cultivation_type.id) }}">{{ tr("cultivation_types.manage_variants") }}</a>
+          </div>
+        </div>
+
+        {% if cultivation_type.variants %}
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>{{ tr("cultivation_types.variant_name") }}</th>
+                  <th>{{ tr("cultivation_types.variant_sort_order") }}</th>
+                  <th>{{ tr("cultivation_types.used_count") }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for variant in cultivation_type.variants %}
+                  <tr>
+                    <td>{{ variant.name }}</td>
+                    <td>{{ variant.sort_order }}</td>
+                    <td>{{ variant.nodes|length }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("cultivation_types.no_variants") }}</p>
+        {% endif %}
+      </div>
+
+      <div class="inline-map-help">
+        <h2>{{ tr("cultivation_types.images") }}</h2>
+        {% if cultivation_type.images %}
+          <div class="stack-list">
+            {% for image in cultivation_type.images %}
+              <div class="list-item">
+                <a class="thumb-link" href="{{ url_for('static', filename=image.image_path) }}" target="_blank" rel="noreferrer">
+                  <img class="thumb" src="{{ url_for('static', filename=image.image_path) }}" alt="{{ image.title }}">
+                </a>
+                <div class="list-copy">
+                  <strong>{{ image.title }}</strong>
+                  {% if image.caption %}
+                    <p>{{ image.caption }}</p>
+                  {% endif %}
+                </div>
+                <div class="stack-actions">
+                  <a class="button button-secondary button-small" href="{{ url_for('admin.edit_cultivation_type_image', image_id=image.id) }}">{{ tr("common.edit") }}</a>
+                  <form method="post" action="{{ url_for('admin.delete_cultivation_type_image', image_id=image.id) }}">
+                    {{ delete_form.hidden_tag() }}
+                    <button type="submit" class="button button-danger button-small" data-confirm="Delete this image?">{{ tr("common.delete") }}</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">{{ tr("cultivation_types.no_images") }}</p>
+        {% endif %}
+
+        <p>
+          <a class="button button-secondary" href="{{ url_for('admin.add_cultivation_type_image', cultivation_type_id=cultivation_type.id) }}">{{ tr("cultivation_types.add_image") }}</a>
+        </p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

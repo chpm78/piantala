@@ -9,12 +9,28 @@
         <p>{{ tr("node.manage_cultivation_positions_text") }}</p>
       </div>
       <div class="hero-actions">
-        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
+        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id, year=selected_year) if selected_year is not none else url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
       </div>
     </div>
 
+    {% if available_cultivation_years %}
+      <form method="get" class="inline-toggle">
+        <label class="inline-select-label">
+          <span>{{ tr("node.cultivation_year_view") }}</span>
+          <select name="year" class="input" onchange="this.form.submit()">
+            {% for year_value in available_cultivation_years %}
+              <option value="{{ year_value }}" {% if selected_year == year_value %}selected{% endif %}>{{ year_value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    {% endif %}
+
     <form method="post" class="cultivation-manager-form">
       {{ delete_form.hidden_tag() }}
+      {% if selected_year is not none %}
+        <input type="hidden" name="year" value="{{ selected_year }}">
+      {% endif %}
       <div
         class="cultivation-manager"
         data-cultivation-position-manager="true"
@@ -90,7 +106,7 @@
 
       <div class="form-actions">
         <button type="submit" class="button">{{ tr("node.save_cultivation_positions") }}</button>
-        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
+        <a class="button button-secondary" href="{{ url_for('main.node_detail', node_id=node.id, year=selected_year) if selected_year is not none else url_for('main.node_detail', node_id=node.id) }}">{{ tr("common.cancel") }}</a>
       </div>
     </form>
   </section>
