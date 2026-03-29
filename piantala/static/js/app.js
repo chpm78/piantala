@@ -45,21 +45,27 @@ function syncProviderPanels() {
  */
 function syncNodeTypeFields() {
   const nodeTypeSelect = document.querySelector("select[name='node_type']");
-  const lifeCycleSelect = document.querySelector("select[name='life_cycle']");
+  const typeSelect = document.querySelector("[data-cultivation-type-select='true']");
   if (!nodeTypeSelect) {
     return;
   }
 
   const hideLifecycleFields = nodeTypeSelect.value === "section";
   const showCultivationFields = nodeTypeSelect.value === "bed" || nodeTypeSelect.value === "plant";
+  const showPlantOnlyFields = nodeTypeSelect.value === "plant";
+  const selectedType = typeSelect?.selectedOptions?.[0];
+  const selectedLifeCycleValue = showCultivationFields ? (selectedType?.dataset.lifeCycleValue || "") : "";
   document.querySelectorAll("[data-section-hidden-field='true']").forEach((field) => {
     field.hidden = hideLifecycleFields;
   });
   document.querySelectorAll("[data-cultivation-only-field='true']").forEach((field) => {
     field.hidden = !showCultivationFields;
   });
+  document.querySelectorAll("[data-plant-only-field='true']").forEach((field) => {
+    field.hidden = !showPlantOnlyFields;
+  });
 
-  const showAnnualFields = !hideLifecycleFields && lifeCycleSelect?.value === "annual";
+  const showAnnualFields = showCultivationFields && selectedLifeCycleValue === "annual";
   document.querySelectorAll("[data-annual-only-field='true']").forEach((field) => {
     field.hidden = !showAnnualFields;
   });
@@ -105,6 +111,50 @@ function syncCultivationVariantField() {
 }
 
 /**
+ * Keep cultivation-derived form fields in sync with the selected type and variant.
+ */
+function syncCultivationDerivedFields() {
+  const nodeForm = document.querySelector("form[data-node-form-mode]");
+  const nodeTypeSelect = document.querySelector("select[name='node_type']");
+  const typeSelect = document.querySelector("[data-cultivation-type-select='true']");
+  const variantSelect = document.querySelector("[data-cultivation-variant-select='true']");
+  const titleInput = document.querySelector("input[name='title']");
+  const lifeCycleInput = document.getElementById("life_cycle");
+  const lifeCycleDisplay = document.getElementById("life_cycle_display");
+  if (!nodeTypeSelect || !typeSelect || !variantSelect) {
+    return;
+  }
+
+  const isCultivationNode = nodeTypeSelect.value === "bed" || nodeTypeSelect.value === "plant";
+  const selectedType = typeSelect.selectedOptions?.[0];
+  const selectedVariant = variantSelect.selectedOptions?.[0];
+  const lifeCycleValue = isCultivationNode ? (selectedType?.dataset.lifeCycleValue || "") : "";
+  const lifeCycleLabel = isCultivationNode ? (selectedType?.dataset.lifeCycleLabel || "") : "";
+
+  if (lifeCycleInput) {
+    lifeCycleInput.value = lifeCycleValue;
+  }
+  if (lifeCycleDisplay) {
+    lifeCycleDisplay.value = lifeCycleLabel;
+  }
+
+  if (!nodeForm || nodeForm.dataset.nodeFormMode !== "create" || !titleInput || !isCultivationNode) {
+    return;
+  }
+
+  const baseLabel = (selectedType?.dataset.selectorLabel || "").trim();
+  const variantLabel =
+    selectedVariant && selectedVariant.value !== "0"
+      ? (selectedVariant.textContent || "").trim()
+      : "";
+  const derivedTitle = [baseLabel, variantLabel].filter(Boolean).join(", ");
+  if (derivedTitle && (!titleInput.value.trim() || titleInput.dataset.autoFilled === "true")) {
+    titleInput.value = derivedTitle;
+    titleInput.dataset.autoFilled = "true";
+  }
+}
+
+/**
  * Apply cultivation marker defaults when creating a new cultivation node.
  */
 function syncCultivationMarkerDefaults() {
@@ -145,7 +195,7 @@ function syncCultivationMarkerDefaults() {
  */
 function syncCultivationYearFromPlantingDate() {
   const nodeTypeSelect = document.querySelector("select[name='node_type']");
-  const lifeCycleSelect = document.querySelector("select[name='life_cycle']");
+  const lifeCycleInput = document.getElementById("life_cycle");
   const plantingDateInput = document.getElementById("planting_date");
   const cultivationYearInput = document.getElementById("cultivation_year");
   if (!plantingDateInput || !cultivationYearInput) {
@@ -153,7 +203,8 @@ function syncCultivationYearFromPlantingDate() {
   }
 
   const isAnnualCultivation =
-    nodeTypeSelect?.value !== "section" && lifeCycleSelect?.value === "annual";
+    (nodeTypeSelect?.value === "bed" || nodeTypeSelect?.value === "plant") &&
+    lifeCycleInput?.value === "annual";
   if (!isAnnualCultivation) {
     cultivationYearInput.removeAttribute("min");
     return;
@@ -1316,22 +1367,27 @@ document.addEventListener("change", (event) => {
   }
 
   if (event.target.matches("select[name='node_type']")) {
-    syncNodeTypeFields();
     syncCultivationVariantField();
+    syncCultivationDerivedFields();
+    syncNodeTypeFields();
     syncCultivationYearFromPlantingDate();
     syncMarkerPreview();
   }
 
   if (event.target.matches("select[name='cultivation_type_id']")) {
     syncCultivationVariantField();
+    syncCultivationDerivedFields();
+    syncNodeTypeFields();
+    syncCultivationYearFromPlantingDate();
     syncCultivationMarkerDefaults();
   }
 
   if (event.target.matches("[data-cultivation-variant-select='true']")) {
+    syncCultivationDerivedFields();
     syncCultivationMarkerDefaults();
   }
 
-  if (event.target.matches("select[name='life_cycle']")) {
+  if (event.target.matches("#life_cycle")) {
     syncNodeTypeFields();
     syncCultivationVariantField();
     syncCultivationYearFromPlantingDate();
@@ -1342,6 +1398,10 @@ document.addEventListener("change", (event) => {
   }
 
   if (event.target.matches("#cultivation_year")) {
+    event.target.dataset.autoFilled = "false";
+  }
+
+  if (event.target.matches("input[name='title']")) {
     event.target.dataset.autoFilled = "false";
   }
 
@@ -3207,8 +3267,9 @@ window.initPiantalaLeafletMaps = function initPiantalaLeafletMaps() {
  * Initialize node-type-dependent UI helpers on forms.
  */
 window.initPiantalaNodeTypeFields = function initPiantalaNodeTypeFields() {
-  syncNodeTypeFields();
   syncCultivationVariantField();
+  syncCultivationDerivedFields();
+  syncNodeTypeFields();
   syncCultivationMarkerDefaults();
   syncMarkerPreview();
   initOverlayEditors();
@@ -3230,8 +3291,9 @@ if (window.L) {
 }
 
 syncProviderPanels();
-syncNodeTypeFields();
 syncCultivationVariantField();
+syncCultivationDerivedFields();
+syncNodeTypeFields();
 syncCultivationMarkerDefaults();
 syncCultivationYearFromPlantingDate();
 initOverlayEditors();
