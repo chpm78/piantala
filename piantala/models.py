@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter
+import hashlib
 import json
-from datetime import datetime, UTC
+import re
+import secrets
+from datetime import datetime, UTC, timedelta
 
 from flask import has_request_context
 from flask_login import UserMixin
@@ -186,6 +189,31 @@ role_permissions = db.Table(
 )
 
 
+def _slugify_site_name(value: str | None) -> str:
+    """Return a URL-safe site slug from a display name.
+
+    Parameters:
+        value: Site name entered by the user.
+    """
+    cleaned = _normalize_optional_text(value) or "site"
+    slug = re.sub(r"[^a-z0-9]+", "-", cleaned.casefold()).strip("-")
+    return slug or "site"
+
+
+def _site_unique_slug(base_slug: str) -> str:
+    """Return a slug that is unique among existing sites.
+
+    Parameters:
+        base_slug: Desired base slug derived from the site name.
+    """
+    candidate = base_slug or "site"
+    suffix = 2
+    while Site.query.filter_by(slug=candidate).first() is not None:
+        candidate = f"{base_slug}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 class Permission(db.Model):
     __tablename__ = "permissions"
 
@@ -197,6 +225,71 @@ class Permission(db.Model):
 class AuditMixin:
     created_by_name = db.Column(db.String(80), nullable=True)
     updated_by_name = db.Column(db.String(80), nullable=True)
+
+
+class Site(AuditMixin, db.Model):
+    __tablename__ = "sites"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(120), unique=True, nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    owner = db.relationship("User", foreign_keys=[owner_user_id])
+    memberships = db.relationship(
+        "SiteMembership",
+        back_populates="site",
+        cascade="all, delete-orphan",
+        order_by="SiteMembership.created_at, SiteMembership.id",
+    )
+    settings = db.relationship(
+        "GardenSettings",
+        back_populates="site",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    nodes = db.relationship(
+        "GardenNode",
+        back_populates="site",
+        order_by="GardenNode.sort_order, GardenNode.title",
+    )
+    home_assistant_settings = db.relationship(
+        "HomeAssistantSettings",
+        back_populates="site",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    home_assistant_catalog = db.relationship(
+        "HomeAssistantEntityCatalog",
+        back_populates="site",
+        cascade="all, delete-orphan",
+        order_by="HomeAssistantEntityCatalog.entity_id",
+    )
+
+    @classmethod
+    def create_with_unique_slug(cls, name: str, *, owner: "User | None" = None) -> "Site":
+        """Create one site instance with a unique slug.
+
+        Parameters:
+            name: Human-readable site name.
+            owner: Optional owner user for the new site.
+        """
+        cleaned_name = _normalize_optional_text(name) or "New site"
+        site = cls(
+            name=cleaned_name,
+            slug=_site_unique_slug(_slugify_site_name(cleaned_name)),
+            owner=owner,
+        )
+        db.session.add(site)
+        return site
 
 
 class Role(db.Model):
@@ -214,6 +307,168 @@ class Role(db.Model):
     )
 
 
+class SiteMembership(AuditMixin, db.Model):
+    __tablename__ = "site_memberships"
+    __table_args__ = (
+        UniqueConstraint("site_id", "user_id", name="uq_site_membership_site_user"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(db.Integer, db.ForeignKey("sites.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    invited_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    site = db.relationship("Site", back_populates="memberships")
+    user = db.relationship("User", back_populates="site_memberships", foreign_keys=[user_id])
+    role = db.relationship("Role")
+    invited_by_user = db.relationship("User", foreign_keys=[invited_by_user_id])
+
+    def has_permission(self, permission_code: str) -> bool:
+        """Return whether this membership grants one permission code.
+
+        Parameters:
+            permission_code: Permission identifier to check on the membership role.
+        """
+        return any(permission.code == permission_code for permission in self.role.permissions)
+
+
+class PlatformSettings(AuditMixin, db.Model):
+    __tablename__ = "platform_settings"
+
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    allow_self_registration = db.Column(db.Boolean, nullable=False, default=False)
+    public_base_url = db.Column(db.String(255), nullable=True)
+    mail_from_name = db.Column(db.String(120), nullable=True)
+    mail_from_email = db.Column(db.String(255), nullable=True)
+    smtp_preset = db.Column(db.String(32), nullable=False, default="custom")
+    smtp_host = db.Column(db.String(255), nullable=True)
+    smtp_port = db.Column(db.Integer, nullable=False, default=587)
+    smtp_username = db.Column(db.String(255), nullable=True)
+    smtp_password = db.Column(db.String(255), nullable=True)
+    smtp_use_tls = db.Column(db.Boolean, nullable=False, default=True)
+    smtp_use_ssl = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    @classmethod
+    def get_or_create(cls) -> "PlatformSettings":
+        """Return the singleton platform settings row, creating it if needed."""
+        settings = cls.query.first()
+        if settings is None:
+            settings = cls()
+            db.session.add(settings)
+            db.session.commit()
+        return settings
+
+    @property
+    def smtp_is_configured(self) -> bool:
+        """Return whether enough SMTP settings exist to send emails."""
+        return bool(self.smtp_host and self.mail_from_email)
+
+
+class AuthToken(AuditMixin, db.Model):
+    __tablename__ = "auth_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    purpose = db.Column(db.String(64), nullable=False)
+    token_hash = db.Column(db.String(128), unique=True, nullable=False)
+    email = db.Column(db.String(255), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    site_id = db.Column(db.Integer, db.ForeignKey("sites.id"), nullable=True)
+    role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=True)
+    payload_json = db.Column(db.Text, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+
+    user = db.relationship("User", foreign_keys=[user_id])
+    site = db.relationship("Site", foreign_keys=[site_id])
+    role = db.relationship("Role", foreign_keys=[role_id])
+
+    @classmethod
+    def issue(
+        cls,
+        *,
+        purpose: str,
+        expires_in_hours: int,
+        email: str | None = None,
+        user: "User | None" = None,
+        site: Site | None = None,
+        role: Role | None = None,
+        payload: dict | None = None,
+    ) -> tuple["AuthToken", str]:
+        """Create one single-use auth token and return it with the raw secret.
+
+        Parameters:
+            purpose: Logical token purpose such as `confirm_registration`.
+            expires_in_hours: Token lifetime in hours.
+            email: Optional email linked to the token.
+            user: Optional user linked to the token.
+            site: Optional site linked to the token.
+            role: Optional role linked to the token.
+            payload: Optional JSON-serializable payload.
+        """
+        raw_token = secrets.token_urlsafe(32)
+        token = cls(
+            purpose=purpose,
+            token_hash=hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
+            email=_normalize_optional_text(email.lower() if email else None),
+            user=user,
+            site=site,
+            role=role,
+            payload_json=json.dumps(payload or {}, sort_keys=True) if payload is not None else None,
+            expires_at=datetime.now(UTC) + timedelta(hours=expires_in_hours),
+        )
+        db.session.add(token)
+        return token, raw_token
+
+    @property
+    def is_usable(self) -> bool:
+        """Return whether the token is still valid and unused."""
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return self.used_at is None and expires_at > datetime.now(UTC)
+
+    @property
+    def payload(self) -> dict:
+        """Return the decoded token payload."""
+        if not self.payload_json:
+            return {}
+        try:
+            value = json.loads(self.payload_json)
+        except (TypeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @classmethod
+    def consume(cls, raw_token: str, *, purpose: str) -> "AuthToken | None":
+        """Return one valid token for a raw secret and mark it as used later.
+
+        Parameters:
+            raw_token: Raw token value sent via email.
+            purpose: Expected token purpose.
+        """
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        token = cls.query.filter_by(token_hash=token_hash, purpose=purpose).first()
+        if token is None or not token.is_usable:
+            return None
+        return token
+
+
 class User(UserMixin, AuditMixin, db.Model):
     __tablename__ = "users"
 
@@ -223,6 +478,7 @@ class User(UserMixin, AuditMixin, db.Model):
     preferred_locale = db.Column(db.String(8), nullable=False, default=DEFAULT_LOCALE)
     password_hash = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    email_confirmed_at = db.Column(db.DateTime, nullable=True)
     last_login_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
     roles = db.relationship(
@@ -236,6 +492,13 @@ class User(UserMixin, AuditMixin, db.Model):
         back_populates="user",
         cascade="all, delete-orphan",
         order_by=lambda: db.desc(UserLoginHistory.logged_in_at),
+    )
+    site_memberships = db.relationship(
+        "SiteMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="SiteMembership.user_id",
+        order_by="SiteMembership.created_at, SiteMembership.id",
     )
 
     def set_password(self, password: str) -> None:
@@ -258,11 +521,11 @@ class User(UserMixin, AuditMixin, db.Model):
 
         return check_password_hash(self.password_hash, password)
 
-    def has_permission(self, permission_code: str) -> bool:
-        """Return whether the user has a specific permission code.
+    def has_global_permission(self, permission_code: str) -> bool:
+        """Return whether the user has one permission via global platform roles.
 
         Parameters:
-            permission_code: Permission identifier to look for in the user's roles.
+            permission_code: Permission identifier to look for in the user's global roles.
         """
         return any(
             permission.code == permission_code
@@ -270,15 +533,73 @@ class User(UserMixin, AuditMixin, db.Model):
             for permission in role.permissions
         )
 
-    def role_names(self) -> list[str]:
-        """Return the user's role names sorted alphabetically."""
+    def membership_for_site(self, site: Site | int | None) -> SiteMembership | None:
+        """Return the user's membership for one site, if present.
+
+        Parameters:
+            site: Site instance or id.
+        """
+        if site is None:
+            return None
+        site_id = site.id if isinstance(site, Site) else int(site)
+        return next((membership for membership in self.site_memberships if membership.site_id == site_id), None)
+
+    @property
+    def accessible_sites(self) -> list[Site]:
+        """Return sites the user can access, ordered by name."""
+        sites = {membership.site for membership in self.site_memberships if membership.site is not None and membership.site.is_active}
+        if self.has_global_permission("manage_users") or self.has_global_permission("manage_content"):
+            sites.update(Site.query.filter_by(is_active=True).all())
+        return sorted(sites, key=lambda site: ((site.name or "").casefold(), site.id))
+
+    def can_access_site(self, site: Site | int | None) -> bool:
+        """Return whether the user can open a given site.
+
+        Parameters:
+            site: Site instance or id.
+        """
+        if site is None:
+            return False
+        if self.has_global_permission("manage_users") or self.has_global_permission("manage_content"):
+            return True
+        return self.membership_for_site(site) is not None
+
+    def has_permission(self, permission_code: str, *, site: Site | int | None = None) -> bool:
+        """Return whether the user has a specific permission code.
+
+        Parameters:
+            permission_code: Permission identifier to look for in the user's roles.
+            site: Optional site context for site-scoped membership permissions.
+        """
+        if site is None and has_request_context():
+            try:
+                from .site_context import current_site as request_current_site
+
+                site = request_current_site()
+            except Exception:
+                site = None
+        if self.has_global_permission(permission_code):
+            return True
+        membership = self.membership_for_site(site)
+        return membership.has_permission(permission_code) if membership is not None else False
+
+    def role_names(self, *, site: Site | int | None = None) -> list[str]:
+        """Return the user's role names for one site or for global roles.
+
+        Parameters:
+            site: Optional site context for membership roles.
+        """
+        membership = self.membership_for_site(site)
+        if membership is not None and membership.role is not None:
+            return [membership.role.name]
         return sorted(role.name for role in self.roles)
 
 
 class GardenSettings(AuditMixin, db.Model):
     __tablename__ = "garden_settings"
 
-    id = db.Column(db.Integer, primary_key=True, default=1)
+    id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(db.Integer, db.ForeignKey("sites.id"), nullable=True, unique=True)
     site_name = db.Column(db.String(120), nullable=False, default="Piantala")
     welcome_text = db.Column(
         db.Text,
@@ -304,13 +625,28 @@ class GardenSettings(AuditMixin, db.Model):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+    site = db.relationship("Site", back_populates="settings")
 
     @classmethod
-    def get_or_create(cls) -> "GardenSettings":
-        """Return the singleton garden settings row, creating it if needed."""
-        settings = cls.query.first()
+    def get_or_create(cls, site: Site | None = None) -> "GardenSettings":
+        """Return one site settings row, creating it if needed.
+
+        Parameters:
+            site: Site whose settings row should be returned.
+        """
+        if site is None and has_request_context():
+            try:
+                from .site_context import current_site as request_current_site
+
+                site = request_current_site()
+            except Exception:
+                site = None
+        if site is None:
+            settings = cls.query.first()
+        else:
+            settings = cls.query.filter_by(site_id=site.id).first()
         if settings is None:
-            settings = cls()
+            settings = cls(site=site, site_name=site.name if site is not None else "Piantala")
             db.session.add(settings)
             db.session.commit()
         return settings
@@ -554,6 +890,7 @@ class GardenNode(AuditMixin, db.Model):
     __tablename__ = "garden_nodes"
 
     id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(db.Integer, db.ForeignKey("sites.id"), nullable=True)
     parent_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=True)
     cloned_from_node_id = db.Column(db.Integer, db.ForeignKey("garden_nodes.id"), nullable=True)
     cultivation_type_id = db.Column(db.Integer, db.ForeignKey("cultivation_types.id"), nullable=True)
@@ -601,6 +938,7 @@ class GardenNode(AuditMixin, db.Model):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+    site = db.relationship("Site", back_populates="nodes")
 
     parent = db.relationship(
         "GardenNode",
@@ -1402,7 +1740,8 @@ class NodeIrrigationZone(AuditMixin, db.Model):
 class HomeAssistantSettings(AuditMixin, db.Model):
     __tablename__ = "home_assistant_settings"
 
-    id = db.Column(db.Integer, primary_key=True, default=1)
+    id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(db.Integer, db.ForeignKey("sites.id"), nullable=True, unique=True)
     base_url = db.Column(db.String(255), nullable=True)
     internal_url = db.Column(db.String(255), nullable=True)
     access_token = db.Column(db.String(255), nullable=True)
@@ -1426,13 +1765,28 @@ class HomeAssistantSettings(AuditMixin, db.Model):
         onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
+    site = db.relationship("Site", back_populates="home_assistant_settings")
 
     @classmethod
-    def get_or_create(cls) -> "HomeAssistantSettings":
-        """Return the singleton Home Assistant settings row, creating it if needed."""
-        settings = cls.query.first()
+    def get_or_create(cls, site: Site | None = None) -> "HomeAssistantSettings":
+        """Return one site's Home Assistant settings row, creating it if needed.
+
+        Parameters:
+            site: Site whose Home Assistant settings should be returned.
+        """
+        if site is None and has_request_context():
+            try:
+                from .site_context import current_site as request_current_site
+
+                site = request_current_site()
+            except Exception:
+                site = None
+        if site is None:
+            settings = cls.query.first()
+        else:
+            settings = cls.query.filter_by(site_id=site.id).first()
         if settings is None:
-            settings = cls()
+            settings = cls(site=site)
             db.session.add(settings)
             db.session.commit()
         return settings
@@ -1450,9 +1804,13 @@ class HomeAssistantSettings(AuditMixin, db.Model):
 
 class HomeAssistantEntityCatalog(AuditMixin, db.Model):
     __tablename__ = "home_assistant_entity_catalog"
+    __table_args__ = (
+        UniqueConstraint("site_id", "entity_id", name="uq_ha_catalog_site_entity"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    entity_id = db.Column(db.String(255), unique=True, nullable=False)
+    site_id = db.Column(db.Integer, db.ForeignKey("sites.id"), nullable=True)
+    entity_id = db.Column(db.String(255), nullable=False)
     domain = db.Column(db.String(64), nullable=False)
     friendly_name = db.Column(db.String(255), nullable=True)
     state = db.Column(db.String(255), nullable=True)
@@ -1462,6 +1820,7 @@ class HomeAssistantEntityCatalog(AuditMixin, db.Model):
     last_updated = db.Column(db.String(64), nullable=True)
     raw_attributes_json = db.Column(db.Text, nullable=True)
     seen_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC), nullable=False)
+    site = db.relationship("Site", back_populates="home_assistant_catalog")
 
 
 class TranslationEntry(AuditMixin, db.Model):
@@ -1492,6 +1851,103 @@ class UserLoginHistory(db.Model):
     user_agent = db.Column(db.String(512), nullable=True)
 
     user = db.relationship("User", back_populates="login_history")
+
+
+def _role_priority(role: Role) -> tuple[int, int, str]:
+    """Return a stable priority key for choosing one site role for legacy users.
+
+    Parameters:
+        role: Role candidate assigned globally to an existing user.
+    """
+    priority_map = {"admin": 3, "editor": 2, "viewer": 1}
+    return (
+        priority_map.get((role.name or "").casefold(), 0),
+        len(role.permissions),
+        (role.name or "").casefold(),
+    )
+
+
+def _highest_role_for_user(user: User) -> Role | None:
+    """Return the strongest global role assigned to one user.
+
+    Parameters:
+        user: Existing user being backfilled into site memberships.
+    """
+    if not user.roles:
+        return None
+    return sorted(user.roles, key=_role_priority, reverse=True)[0]
+
+
+def _ensure_default_site() -> Site:
+    """Return the first site, creating one from legacy singleton data if needed."""
+    site = Site.query.order_by(Site.id).first()
+    if site is not None:
+        return site
+
+    existing_settings = GardenSettings.query.first()
+    seed_name = (
+        _normalize_optional_text(existing_settings.site_name) if existing_settings is not None else None
+    ) or "Piantala"
+    site = Site.create_with_unique_slug(seed_name)
+    db.session.flush()
+    return site
+
+
+def _backfill_site_scoping(default_site: Site) -> None:
+    """Attach legacy singleton records to the default site.
+
+    Parameters:
+        default_site: Site receiving pre-multi-site data.
+    """
+    settings = GardenSettings.query.first()
+    if settings is not None and settings.site_id is None:
+        settings.site = default_site
+        if not default_site.name and settings.site_name:
+            default_site.name = settings.site_name
+
+    ha_settings = HomeAssistantSettings.query.first()
+    if ha_settings is not None and ha_settings.site_id is None:
+        ha_settings.site = default_site
+
+    for entity in HomeAssistantEntityCatalog.query.filter_by(site_id=None).all():
+        entity.site = default_site
+
+    root_nodes = GardenNode.query.filter_by(parent_id=None).order_by(GardenNode.id).all()
+    for node in root_nodes:
+        if node.site_id is None:
+            node.site = default_site
+
+    for node in GardenNode.query.order_by(GardenNode.level, GardenNode.id).all():
+        if node.site_id is not None:
+            continue
+        if node.parent is not None and node.parent.site_id is not None:
+            node.site_id = node.parent.site_id
+        else:
+            node.site = default_site
+
+    for user in User.query.order_by(User.id).all():
+        role = _highest_role_for_user(user)
+        if role is None:
+            continue
+        membership = SiteMembership.query.filter_by(site_id=default_site.id, user_id=user.id).first()
+        if membership is None:
+            membership = SiteMembership(site=default_site, user=user, role=role)
+            db.session.add(membership)
+        elif membership.role_id is None:
+            membership.role = role
+
+    if default_site.owner_user_id is None:
+        admin_membership = (
+            SiteMembership.query.join(Role)
+            .filter(
+                SiteMembership.site_id == default_site.id,
+                Role.name == "admin",
+            )
+            .order_by(SiteMembership.user_id)
+            .first()
+        )
+        if admin_membership is not None:
+            default_site.owner_user_id = admin_membership.user_id
 
 
 def _audit_actor_name() -> str:
@@ -1572,10 +2028,15 @@ def ensure_seed_data() -> None:
 
     db.session.flush()
 
-    if GardenSettings.query.first() is None:
-        db.session.add(GardenSettings())
-    if HomeAssistantSettings.query.first() is None:
-        db.session.add(HomeAssistantSettings())
+    default_site = _ensure_default_site()
+    _backfill_site_scoping(default_site)
+
+    if PlatformSettings.query.first() is None:
+        db.session.add(PlatformSettings())
+    if GardenSettings.query.filter_by(site_id=default_site.id).first() is None:
+        db.session.add(GardenSettings(site=default_site, site_name=default_site.name))
+    if HomeAssistantSettings.query.filter_by(site_id=default_site.id).first() is None:
+        db.session.add(HomeAssistantSettings(site=default_site))
 
     marker_colors = MarkerColor.query.order_by(MarkerColor.sort_order, MarkerColor.id).all()
     if not marker_colors:
@@ -1862,6 +2323,7 @@ def _sync_users_email_optionality(connection) -> None:
                 " preferred_locale VARCHAR(8) NOT NULL DEFAULT 'en',"
                 " password_hash VARCHAR(255) NOT NULL,"
                 " is_active BOOLEAN NOT NULL DEFAULT 1,"
+                " email_confirmed_at DATETIME,"
                 " last_login_at DATETIME,"
                 " created_at DATETIME NOT NULL,"
                 " created_by_name VARCHAR(80),"
@@ -1873,11 +2335,11 @@ def _sync_users_email_optionality(connection) -> None:
             text(
                 "INSERT INTO users_new ("
                 " id, username, email, preferred_locale, password_hash, is_active,"
-                " last_login_at, created_at, created_by_name, updated_by_name"
+                " email_confirmed_at, last_login_at, created_at, created_by_name, updated_by_name"
                 " ) "
                 "SELECT "
                 " id, username, NULLIF(email, ''), preferred_locale, password_hash, is_active,"
-                " last_login_at, created_at, created_by_name, updated_by_name "
+                " email_confirmed_at, last_login_at, created_at, created_by_name, updated_by_name "
                 "FROM users"
             )
         )
@@ -1965,6 +2427,80 @@ def _sync_irrigation_zone_entity_optionality(connection) -> None:
         return
 
     connection.execute(text("ALTER TABLE node_irrigation_zones ALTER COLUMN entity_id DROP NOT NULL"))
+
+
+def _sync_home_assistant_catalog_site_uniqueness(connection) -> None:
+    """Replace legacy global entity uniqueness with site-aware uniqueness.
+
+    Parameters:
+        connection: Active SQLAlchemy connection used for schema changes.
+    """
+    if db.engine.dialect.name == "sqlite":
+        index_rows = connection.exec_driver_sql("PRAGMA index_list('home_assistant_entity_catalog')").fetchall()
+        legacy_unique_present = False
+        new_index_present = False
+        for row in index_rows:
+            index_name = row[1]
+            is_unique = bool(row[2])
+            columns = _sqlite_index_columns(connection, index_name)
+            if index_name == "uq_ha_catalog_site_entity":
+                new_index_present = True
+            if is_unique and columns == ["entity_id"]:
+                legacy_unique_present = True
+
+        if legacy_unique_present:
+            connection.execute(text("PRAGMA foreign_keys=OFF"))
+            connection.execute(
+                text(
+                    "CREATE TABLE home_assistant_entity_catalog_new ("
+                    " id INTEGER NOT NULL PRIMARY KEY,"
+                    " site_id INTEGER,"
+                    " entity_id VARCHAR(255) NOT NULL,"
+                    " domain VARCHAR(64) NOT NULL,"
+                    " friendly_name VARCHAR(255),"
+                    " state VARCHAR(255),"
+                    " unit_of_measurement VARCHAR(64),"
+                    " icon VARCHAR(128),"
+                    " device_class VARCHAR(128),"
+                    " last_updated VARCHAR(64),"
+                    " raw_attributes_json TEXT,"
+                    " seen_at DATETIME NOT NULL,"
+                    " created_by_name VARCHAR(80),"
+                    " updated_by_name VARCHAR(80)"
+                    ")"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO home_assistant_entity_catalog_new ("
+                    " id, site_id, entity_id, domain, friendly_name, state, unit_of_measurement, icon,"
+                    " device_class, last_updated, raw_attributes_json, seen_at, created_by_name, updated_by_name"
+                    " ) "
+                    "SELECT "
+                    " id, site_id, entity_id, domain, friendly_name, state, unit_of_measurement, icon,"
+                    " device_class, last_updated, raw_attributes_json, seen_at, created_by_name, updated_by_name "
+                    "FROM home_assistant_entity_catalog"
+                )
+            )
+            connection.execute(text("DROP TABLE home_assistant_entity_catalog"))
+            connection.execute(text("ALTER TABLE home_assistant_entity_catalog_new RENAME TO home_assistant_entity_catalog"))
+            connection.execute(text("PRAGMA foreign_keys=ON"))
+
+        if not new_index_present or legacy_unique_present:
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ha_catalog_site_entity "
+                    "ON home_assistant_entity_catalog (COALESCE(site_id, -1), entity_id)"
+                )
+            )
+        return
+
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ha_catalog_site_entity "
+            "ON home_assistant_entity_catalog (site_id, entity_id)"
+        )
+    )
 
 
 def _sync_garden_node_uniqueness(connection) -> None:
@@ -2110,8 +2646,22 @@ def sync_schema() -> None:
                 "ALTER TABLE users "
                 "ADD COLUMN updated_by_name VARCHAR(80)"
             ),
+            "email_confirmed_at": (
+                "ALTER TABLE users "
+                "ADD COLUMN email_confirmed_at DATETIME"
+            ),
+        },
+        "platform_settings": {
+            "smtp_preset": (
+                "ALTER TABLE platform_settings "
+                "ADD COLUMN smtp_preset VARCHAR(32) NOT NULL DEFAULT 'custom'"
+            ),
         },
         "garden_settings": {
+            "site_id": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN site_id INTEGER"
+            ),
             "created_by_name": (
                 "ALTER TABLE garden_settings "
                 "ADD COLUMN created_by_name VARCHAR(80)"
@@ -2180,6 +2730,10 @@ def sync_schema() -> None:
             ),
         },
         "home_assistant_settings": {
+            "site_id": (
+                "ALTER TABLE home_assistant_settings "
+                "ADD COLUMN site_id INTEGER"
+            ),
             "created_by_name": (
                 "ALTER TABLE home_assistant_settings "
                 "ADD COLUMN created_by_name VARCHAR(80)"
@@ -2238,6 +2792,10 @@ def sync_schema() -> None:
             ),
         },
         "garden_nodes": {
+            "site_id": (
+                "ALTER TABLE garden_nodes "
+                "ADD COLUMN site_id INTEGER"
+            ),
             "cloned_from_node_id": (
                 "ALTER TABLE garden_nodes "
                 "ADD COLUMN cloned_from_node_id INTEGER"
@@ -2490,6 +3048,10 @@ def sync_schema() -> None:
             ),
         },
         "home_assistant_entity_catalog": {
+            "site_id": (
+                "ALTER TABLE home_assistant_entity_catalog "
+                "ADD COLUMN site_id INTEGER"
+            ),
             "created_by_name": (
                 "ALTER TABLE home_assistant_entity_catalog "
                 "ADD COLUMN created_by_name VARCHAR(80)"
@@ -2553,6 +3115,9 @@ def sync_schema() -> None:
 
     if "node_irrigation_zones" in existing_tables:
         _sync_irrigation_zone_entity_optionality(connection)
+
+    if "home_assistant_entity_catalog" in existing_tables:
+        _sync_home_assistant_catalog_site_uniqueness(connection)
 
     if "node_photos" in existing_tables:
         connection.execute(

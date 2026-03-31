@@ -4,6 +4,20 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.6.0b1] - 2026-03-31
+
+### Added
+- Beta multi-site foundation with per-site memberships, site switching, public self-registration, invitation flows, and email confirmation tokens.
+- New access settings for registration policy and SMTP presets, including a Docker Mailpit option for testing confirmation emails.
+- Dedicated site context and mailing helpers to support the new authentication and onboarding flows.
+
+### Changed
+- Garden settings, nodes, Home Assistant settings, and Home Assistant entity catalog are now scoped per site instead of being globally shared.
+- The admin users area now focuses on the current site's members and invitations, while users can hold different roles on different sites.
+
+### Fixed
+- Resolved ambiguous membership-to-user joins in the admin users page after the multi-site refactor.
+
 ## [0.5.3] - 2026-03-29
 
 ### Added

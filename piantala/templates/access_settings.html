@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% set admin_section = "Access" %}
+  {% include "_admin_menu.html" %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("admin.heading") }}</p>
+        <h1>Access settings</h1>
+        <p>Control public self-registration and the email channel used for confirmations and invitations.</p>
+      </div>
+    </div>
+
+    <form method="post" class="form-grid two-col">
+      {{ form.hidden_tag() }}
+
+      <label class="inline-check full-width">
+        {{ form.allow_self_registration() }}
+        <span>Allow self registration</span>
+      </label>
+
+      <label class="full-width">
+        <span>Public base URL</span>
+        {{ form.public_base_url(class_="input") }}
+        {% for error in form.public_base_url.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Sender name</span>
+        {{ form.mail_from_name(class_="input") }}
+      </label>
+
+      <label>
+        <span>Sender email</span>
+        {{ form.mail_from_email(class_="input") }}
+        {% for error in form.mail_from_email.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>SMTP provider</span>
+        {{ form.smtp_preset(class_="input", data_smtp_preset="true") }}
+        <small class="muted">For Docker test deployments you can choose <strong>Docker internal SMTP (Mailpit)</strong>. Emails will be captured in Mailpit instead of being sent to the outside world.</small>
+      </label>
+
+      <label>
+        <span>SMTP host</span>
+        {{ form.smtp_host(class_="input", data_smtp_host="true") }}
+        {% for error in form.smtp_host.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>SMTP port</span>
+        {{ form.smtp_port(class_="input", data_smtp_port="true") }}
+      </label>
+
+      <label>
+        <span>SMTP username</span>
+        {{ form.smtp_username(class_="input") }}
+      </label>
+
+      <label>
+        <span>SMTP password</span>
+        {{ form.smtp_password(class_="input") }}
+      </label>
+
+      <label class="inline-check">
+        {{ form.smtp_use_tls(data_smtp_tls="true") }}
+        <span>Use STARTTLS</span>
+      </label>
+
+      <label class="inline-check">
+        {{ form.smtp_use_ssl(data_smtp_ssl="true") }}
+        <span>Use SSL/TLS</span>
+      </label>
+
+      <div class="form-actions full-width">
+        {{ form.submit(class_="button") }}
+        <a class="button button-secondary" href="{{ url_for('admin.index') }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+
+  <script>
+    (() => {
+      const presetField = document.querySelector('[data-smtp-preset="true"]');
+      if (!presetField) return;
+      const hostField = document.querySelector('[data-smtp-host="true"]');
+      const portField = document.querySelector('[data-smtp-port="true"]');
+      const tlsField = document.querySelector('[data-smtp-tls="true"]');
+      const sslField = document.querySelector('[data-smtp-ssl="true"]');
+      const defaults = {{ smtp_provider_defaults|tojson }};
+
+      const applyPreset = () => {
+        const preset = presetField.value;
+        const config = defaults[preset];
+        const isCustom = !config;
+        if (hostField) hostField.readOnly = !isCustom;
+        if (portField) portField.readOnly = !isCustom;
+        if (tlsField) tlsField.disabled = !isCustom;
+        if (sslField) sslField.disabled = !isCustom;
+        if (!config) return;
+        if (hostField) hostField.value = config.host;
+        if (portField) portField.value = config.port;
+        if (tlsField) tlsField.checked = !!config.use_tls;
+        if (sslField) sslField.checked = !!config.use_ssl;
+      };
+
+      presetField.addEventListener('change', applyPreset);
+      applyPreset();
+    })();
+  </script>
+{% endblock %}

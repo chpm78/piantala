@@ -13,6 +13,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
 from .media import max_dimension_for_kind, optimize_image_file
+from .site_context import current_site
 
 
 LEVEL_TYPE_DEFAULTS = {
@@ -52,7 +53,7 @@ def save_uploaded_file(
     destination_dir.mkdir(parents=True, exist_ok=True)
     destination = destination_dir / unique_name
     file_storage.save(destination)
-    settings = GardenSettings.get_or_create()
+    settings = GardenSettings.get_or_create(current_site())
     optimize_image_file(
         destination,
         max_dimension=max_dimension_for_kind(settings, image_kind),
@@ -105,7 +106,7 @@ def save_data_url_upload(
     destination = destination_dir / unique_name
     destination.write_bytes(payload)
 
-    settings = GardenSettings.get_or_create()
+    settings = GardenSettings.get_or_create(current_site())
     optimize_image_file(
         destination,
         max_dimension=max_dimension_for_kind(settings, image_kind),
@@ -138,7 +139,7 @@ def permission_required(permission_code: str):
             """
             if not current_user.is_authenticated:
                 abort(401)
-            if not current_user.has_permission(permission_code):
+            if not current_user.has_permission(permission_code, site=current_site()):
                 flash("You do not have permission for that action.", "danger")
                 abort(403)
             return view(*args, **kwargs)

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <p class="eyebrow">Piantala</p>
+      <h1>Create account</h1>
+      <p>Create your account and your first site. We will send a confirmation email before the site becomes active.</p>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>Site name</span>
+        {{ form.site_name(class_="input") }}
+        {% for error in form.site_name.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Username</span>
+        {{ form.username(class_="input") }}
+        {% for error in form.username.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Email</span>
+        {{ form.email(class_="input") }}
+        {% for error in form.email.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Language</span>
+        {{ form.preferred_locale(class_="input") }}
+      </label>
+
+      <label>
+        <span>Password</span>
+        {{ form.password(class_="input") }}
+        {% for error in form.password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Confirm password</span>
+        {{ form.confirm_password(class_="input") }}
+        {% for error in form.confirm_password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <div class="form-actions">
+        {{ form.submit(class_="button") }}
+        <a class="button button-secondary" href="{{ url_for('auth.login') }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

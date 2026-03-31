@@ -30,12 +30,182 @@ PHOTO_ROLE_CHOICES = [
     ("gallery", "Gallery"),
 ]
 
+SMTP_PROVIDER_CHOICES = [
+    ("docker_mailpit", "Docker internal SMTP (Mailpit)"),
+    ("custom", "Custom"),
+    ("gmail", "Gmail / Google Workspace"),
+    ("outlook", "Outlook / Microsoft 365"),
+    ("icloud", "iCloud Mail"),
+    ("yahoo", "Yahoo Mail"),
+    ("aruba", "Aruba"),
+    ("register", "Register.it"),
+]
+
+SMTP_PROVIDER_DEFAULTS = {
+    "docker_mailpit": {"host": "mailpit", "port": 1025, "use_tls": False, "use_ssl": False},
+    "gmail": {"host": "smtp.gmail.com", "port": 587, "use_tls": True, "use_ssl": False},
+    "outlook": {"host": "smtp.office365.com", "port": 587, "use_tls": True, "use_ssl": False},
+    "icloud": {"host": "smtp.mail.me.com", "port": 587, "use_tls": True, "use_ssl": False},
+    "yahoo": {"host": "smtp.mail.yahoo.com", "port": 465, "use_tls": False, "use_ssl": True},
+    "aruba": {"host": "smtps.aruba.it", "port": 465, "use_tls": False, "use_ssl": True},
+    "register": {"host": "authsmtp.register.it", "port": 587, "use_tls": True, "use_ssl": False},
+}
+
 
 class LoginForm(FlaskForm):
     username = StringField("Username", validators=[DataRequired(), Length(max=80)])
     password = PasswordField("Password", validators=[DataRequired()])
     remember = BooleanField("Remember me")
     submit = SubmitField("Log in")
+
+
+class RegisterForm(FlaskForm):
+    site_name = StringField("Site name", validators=[DataRequired(), Length(max=120)])
+    username = StringField("Username", validators=[DataRequired(), Length(max=80)])
+    email = StringField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    preferred_locale = SelectField(
+        "Language",
+        choices=SUPPORTED_LOCALES,
+        validators=[DataRequired()],
+    )
+    password = PasswordField(
+        "Password",
+        validators=[DataRequired(), Length(min=12, message="Use at least 12 characters.")],
+    )
+    confirm_password = PasswordField(
+        "Confirm password",
+        validators=[DataRequired(), EqualTo("password", message="Passwords must match.")],
+    )
+    submit = SubmitField("Create account")
+
+    def validate(self, extra_validators=None) -> bool:
+        """Validate registration data and uniqueness constraints.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        self.site_name.data = (self.site_name.data or "").strip()
+        self.username.data = (self.username.data or "").strip()
+        self.email.data = (self.email.data or "").strip().lower()
+
+        existing_username = User.query.filter_by(username=self.username.data).first()
+        if existing_username is not None:
+            self.username.errors.append("Username already in use.")
+            return False
+
+        existing_email = User.query.filter_by(email=self.email.data).first()
+        if existing_email is not None:
+            self.email.errors.append("Email already in use.")
+            return False
+
+        return True
+
+
+class InvitationRegistrationForm(FlaskForm):
+    username = StringField("Username", validators=[DataRequired(), Length(max=80)])
+    preferred_locale = SelectField(
+        "Language",
+        choices=SUPPORTED_LOCALES,
+        validators=[DataRequired()],
+    )
+    password = PasswordField(
+        "Password",
+        validators=[DataRequired(), Length(min=12, message="Use at least 12 characters.")],
+    )
+    confirm_password = PasswordField(
+        "Confirm password",
+        validators=[DataRequired(), EqualTo("password", message="Passwords must match.")],
+    )
+    submit = SubmitField("Join site")
+
+    def validate_username(self, field) -> None:
+        """Ensure the invited user picks an unused username.
+
+        Parameters:
+            field: Username field being validated.
+        """
+        username = (field.data or "").strip()
+        if User.query.filter_by(username=username).first() is not None:
+            raise ValidationError("Username already in use.")
+
+
+class SiteInviteForm(FlaskForm):
+    email = StringField("Email", validators=[DataRequired(), Email(), Length(max=255)])
+    role_id = SelectField("Role", coerce=int, validators=[DataRequired()])
+    submit = SubmitField("Send invitation")
+
+    def validate_email(self, field) -> None:
+        """Normalize the invited email address.
+
+        Parameters:
+            field: Email field being validated.
+        """
+        field.data = (field.data or "").strip().lower()
+
+
+class PlatformSettingsForm(FlaskForm):
+    allow_self_registration = BooleanField("Allow self registration")
+    public_base_url = StringField("Public base URL", validators=[Optional(), Length(max=255), URL()])
+    mail_from_name = StringField("Mail sender name", validators=[Optional(), Length(max=120)])
+    mail_from_email = StringField("Mail sender email", validators=[Optional(), Email(), Length(max=255)])
+    smtp_preset = SelectField("SMTP provider", choices=SMTP_PROVIDER_CHOICES, validators=[DataRequired()], default="custom")
+    smtp_host = StringField("SMTP host", validators=[Optional(), Length(max=255)])
+    smtp_port = IntegerField("SMTP port", validators=[DataRequired(), NumberRange(min=1, max=65535)], default=587)
+    smtp_username = StringField("SMTP username", validators=[Optional(), Length(max=255)])
+    smtp_password = PasswordField("SMTP password", validators=[Optional(), Length(max=255)])
+    smtp_use_tls = BooleanField("Use STARTTLS", default=True)
+    smtp_use_ssl = BooleanField("Use SSL/TLS", default=False)
+    submit = SubmitField("Save access settings")
+
+    def validate(self, extra_validators=None) -> bool:
+        """Validate platform mail settings as one coherent configuration.
+
+        Parameters:
+            extra_validators: Additional WTForms validators supplied by Flask-WTF.
+        """
+        if not super().validate(extra_validators=extra_validators):
+            return False
+
+        self.public_base_url.data = (self.public_base_url.data or "").strip() or None
+        self.mail_from_name.data = (self.mail_from_name.data or "").strip() or None
+        self.mail_from_email.data = ((self.mail_from_email.data or "").strip().lower() or None)
+        self.smtp_host.data = (self.smtp_host.data or "").strip() or None
+        self.smtp_username.data = (self.smtp_username.data or "").strip() or None
+        self.smtp_password.data = (self.smtp_password.data or "").strip() or None
+        self.smtp_preset.data = (self.smtp_preset.data or "custom").strip() or "custom"
+
+        preset_defaults = SMTP_PROVIDER_DEFAULTS.get(self.smtp_preset.data)
+        if preset_defaults is not None:
+            self.smtp_host.data = preset_defaults["host"]
+            self.smtp_port.data = preset_defaults["port"]
+            self.smtp_use_tls.data = preset_defaults["use_tls"]
+            self.smtp_use_ssl.data = preset_defaults["use_ssl"]
+
+        mail_fields_present = any(
+            [
+                self.mail_from_email.data,
+                self.smtp_preset.data != "custom",
+                self.smtp_host.data,
+                self.smtp_username.data,
+                self.smtp_password.data,
+            ]
+        )
+        if mail_fields_present and not (self.mail_from_email.data and self.smtp_host.data):
+            message = "SMTP host and sender email are both required to send registration emails."
+            self.mail_from_email.errors.append(message)
+            self.smtp_host.errors.append(message)
+            return False
+
+        if self.smtp_use_tls.data and self.smtp_use_ssl.data:
+            message = "Choose STARTTLS or SSL/TLS, not both at the same time."
+            self.smtp_use_tls.errors.append(message)
+            self.smtp_use_ssl.errors.append(message)
+            return False
+
+        return True
 
 
 class MapSettingsForm(FlaskForm):

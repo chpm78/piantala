@@ -19,14 +19,19 @@ from .forms import (
     CultivationTypeVariantForm,
     DeleteForm,
     HomeAssistantSettingsForm,
+    PlatformSettingsForm,
     LinkTypeForm,
     ManagedMdiIconAddForm,
     MarkerColorForm,
+    SMTP_PROVIDER_DEFAULTS,
+    SiteInviteForm,
     UserForm,
 )
+from .mailing import MailError, send_email
 from .media import Image, relative_upload_to_fs_path
 from .models import (
     ActivityType,
+    AuthToken,
     CultivationType,
     CultivationTypeImage,
     CultivationTypeVariant,
@@ -42,9 +47,12 @@ from .models import (
     NodePhoto,
     GardenNode,
     Role,
+    PlatformSettings,
+    SiteMembership,
     TranslationEntry,
     User,
 )
+from .site_context import current_site, require_current_site
 from .utils import permission_required, save_uploaded_file
 from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
@@ -55,6 +63,23 @@ MDI_METADATA_URLS = [
     "https://cdn.jsdelivr.net/npm/@mdi/svg@7.4.47/meta.json",
     "https://unpkg.com/@mdi/svg@7.4.47/meta.json",
 ]
+
+
+def _build_external_url(endpoint: str, **values) -> str:
+    """Return one public URL for admin-triggered emails.
+
+    Parameters:
+        endpoint: Flask endpoint name.
+        **values: URL variables forwarded to ``url_for``.
+    """
+    from urllib.parse import urljoin
+
+    platform_settings = PlatformSettings.get_or_create()
+    absolute = url_for(endpoint, _external=True, **values)
+    if not platform_settings.public_base_url:
+        return absolute
+    relative = url_for(endpoint, _external=False, **values)
+    return urljoin(platform_settings.public_base_url.rstrip("/") + "/", relative.lstrip("/"))
 
 
 def _marker_icon_choices(selected_icon: str | None = None) -> list[tuple[str, str]]:
@@ -707,6 +732,41 @@ def environment():
     )
 
 
+@bp.route("/access", methods=["GET", "POST"])
+@login_required
+def access_settings():
+    """Configure self-registration and email delivery for the whole platform."""
+    if not current_user.has_global_permission("manage_users"):
+        flash("Only platform administrators can change access settings.", "danger")
+        return redirect(url_for("admin.index"))
+
+    settings = PlatformSettings.get_or_create()
+    form = PlatformSettingsForm(obj=settings)
+    if form.validate_on_submit():
+        settings.allow_self_registration = form.allow_self_registration.data
+        settings.public_base_url = form.public_base_url.data
+        settings.mail_from_name = form.mail_from_name.data
+        settings.mail_from_email = form.mail_from_email.data
+        settings.smtp_preset = form.smtp_preset.data
+        settings.smtp_host = form.smtp_host.data
+        settings.smtp_port = form.smtp_port.data or 587
+        settings.smtp_username = form.smtp_username.data
+        if form.smtp_password.data:
+            settings.smtp_password = form.smtp_password.data
+        settings.smtp_use_tls = form.smtp_use_tls.data
+        settings.smtp_use_ssl = form.smtp_use_ssl.data
+        db.session.commit()
+        flash("Access settings updated.", "success")
+        return redirect(url_for("admin.access_settings"))
+
+    return render_template(
+        "access_settings.html",
+        form=form,
+        settings=GardenSettings.get_or_create(),
+        smtp_provider_defaults=SMTP_PROVIDER_DEFAULTS,
+    )
+
+
 @bp.route("/storage/uploads")
 @login_required
 @permission_required("manage_users")
@@ -805,13 +865,110 @@ def _last_active_admin_guard(user: User, selected_roles: list[Role], is_active: 
 @login_required
 @permission_required("manage_users")
 def users():
-    """Render the user administration list."""
+    """Render current-site membership management and invitations."""
+    site = require_current_site()
+    invite_form = SiteInviteForm(prefix="invite")
+    roles = Role.query.order_by(Role.name).all()
+    invite_form.role_id.choices = [(role.id, role.name) for role in roles]
+    memberships = (
+        SiteMembership.query.filter_by(site_id=site.id)
+        .join(User, SiteMembership.user_id == User.id)
+        .order_by(User.username)
+        .all()
+    )
+    pending_invites = (
+        AuthToken.query.filter_by(purpose="site_invite", site_id=site.id, used_at=None)
+        .order_by(db.desc(AuthToken.created_at))
+        .all()
+    )
     return render_template(
         "users.html",
-        users=User.query.order_by(User.username).all(),
+        memberships=memberships,
+        pending_invites=pending_invites,
+        invite_form=invite_form,
+        delete_form=DeleteForm(),
+        site=site,
         settings=GardenSettings.get_or_create(),
         ha_settings=HomeAssistantSettings.get_or_create(),
     )
+
+
+@bp.route("/users/invite", methods=["POST"])
+@login_required
+@permission_required("manage_users")
+def invite_site_user():
+    """Send one site invitation email for the current site."""
+    site = require_current_site()
+    form = SiteInviteForm(prefix="invite")
+    roles = Role.query.order_by(Role.name).all()
+    form.role_id.choices = [(role.id, role.name) for role in roles]
+    if not form.validate_on_submit():
+        for field_errors in form.errors.values():
+            for error in field_errors:
+                flash(error, "danger")
+        return redirect(url_for("admin.users"))
+
+    role = next((candidate for candidate in roles if candidate.id == form.role_id.data), None)
+    if role is None:
+        flash("Selected role was not found.", "danger")
+        return redirect(url_for("admin.users"))
+
+    platform_settings = PlatformSettings.get_or_create()
+    if not platform_settings.smtp_is_configured:
+        flash("SMTP is not configured yet. Complete platform access settings before sending invitations.", "danger")
+        return redirect(url_for("admin.users"))
+
+    invited_email = form.email.data
+    existing_user = User.query.filter_by(email=invited_email).first()
+    if existing_user is not None:
+        existing_membership = SiteMembership.query.filter_by(site_id=site.id, user_id=existing_user.id).first()
+        if existing_membership is not None:
+            flash("That user already belongs to this site.", "warning")
+            return redirect(url_for("admin.users"))
+
+    token, raw_token = AuthToken.issue(
+        purpose="site_invite",
+        expires_in_hours=72,
+        email=invited_email,
+        site=site,
+        role=role,
+        payload={"invited_by": current_user.username},
+    )
+    db.session.flush()
+    try:
+        send_email(
+            to_email=invited_email,
+            subject=f"Invitation to join {site.name} on Piantala",
+            text_body=(
+                f"You have been invited to join the site '{site.name}' on Piantala as {role.name}.\n\n"
+                f"Open this link to accept the invitation:\n\n"
+                f"{_build_external_url('auth.accept_invite', token=raw_token)}\n\n"
+                "If you do not want to join this site, you can ignore this email."
+            ),
+        )
+    except MailError as exc:
+        db.session.rollback()
+        flash(str(exc), "danger")
+        return redirect(url_for("admin.users"))
+
+    db.session.commit()
+    flash("Invitation sent.", "success")
+    return redirect(url_for("admin.users"))
+
+
+@bp.route("/users/invitations/<int:token_id>/delete", methods=["POST"])
+@login_required
+@permission_required("manage_users")
+def delete_site_invitation(token_id: int):
+    """Cancel one pending invitation for the current site."""
+    site = require_current_site()
+    token = AuthToken.query.filter_by(id=token_id, purpose="site_invite", site_id=site.id).first_or_404()
+    form = DeleteForm()
+    if form.validate_on_submit():
+        db.session.delete(token)
+        db.session.commit()
+        flash("Invitation removed.", "success")
+    return redirect(url_for("admin.users"))
 
 
 @bp.route("/users/new", methods=["GET", "POST"])

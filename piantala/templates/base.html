@@ -37,6 +37,19 @@
             <a href="{{ url_for('auth.profile') }}">{{ tr("nav.profile") }}</a>
           </nav>
           <div class="nav-user">
+            {% if selected_site %}
+              <span>{{ selected_site.name }}</span>
+            {% endif %}
+            {% if accessible_sites|length > 1 %}
+              <form method="post" action="{{ url_for('auth.switch_site', site_id=selected_site.id if selected_site else accessible_sites[0].id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                <select class="input compact-input" name="site_id" onchange="this.form.action='{{ url_for('auth.switch_site', site_id=0) }}'.replace('/0/switch', '/' + this.value + '/switch'); this.form.submit();">
+                  {% for site in accessible_sites %}
+                    <option value="{{ site.id }}" {% if selected_site and site.id == selected_site.id %}selected{% endif %}>{{ site.name }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            {% endif %}
             <span>{{ current_user.username }}</span>
             <form method="post" action="{{ url_for('auth.logout') }}">
               <button type="submit" class="button button-secondary">{{ tr("nav.logout") }}</button>

@@ -229,7 +229,7 @@ def sync_entity_catalog(settings: HomeAssistantSettings) -> int:
 
     existing = {
         row.entity_id: row
-        for row in HomeAssistantEntityCatalog.query.all()
+        for row in HomeAssistantEntityCatalog.query.filter_by(site_id=settings.site_id).all()
     }
     seen_ids: set[str] = set()
 
@@ -237,7 +237,11 @@ def sync_entity_catalog(settings: HomeAssistantSettings) -> int:
         seen_ids.add(state.entity_id)
         row = existing.get(state.entity_id)
         if row is None:
-            row = HomeAssistantEntityCatalog(entity_id=state.entity_id, domain=state.domain)
+            row = HomeAssistantEntityCatalog(
+                site_id=settings.site_id,
+                entity_id=state.entity_id,
+                domain=state.domain,
+            )
             db.session.add(row)
 
         row.domain = state.domain
@@ -252,10 +256,11 @@ def sync_entity_catalog(settings: HomeAssistantSettings) -> int:
 
     stale_rows = (
         HomeAssistantEntityCatalog.query.filter(
+            HomeAssistantEntityCatalog.site_id == settings.site_id,
             HomeAssistantEntityCatalog.entity_id.notin_(list(seen_ids))
         ).all()
         if seen_ids
-        else HomeAssistantEntityCatalog.query.all()
+        else HomeAssistantEntityCatalog.query.filter_by(site_id=settings.site_id).all()
     )
     for row in stale_rows:
         db.session.delete(row)

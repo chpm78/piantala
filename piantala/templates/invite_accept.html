@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel narrow-panel">
+    <div class="panel-header">
+      <p class="eyebrow">Piantala</p>
+      <h1>Accept invitation</h1>
+      <p>You were invited to join <strong>{{ invite_token.site.name }}</strong> as <strong>{{ invite_token.role.name if invite_token.role else 'viewer' }}</strong>.</p>
+      <p>Email: {{ invite_token.email }}</p>
+    </div>
+
+    <form method="post" class="form-grid">
+      {{ form.hidden_tag() }}
+      <input type="hidden" name="token" value="{{ request.args.get('token') or request.form.get('token') }}">
+
+      <label>
+        <span>Username</span>
+        {{ form.username(class_="input") }}
+        {% for error in form.username.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Language</span>
+        {{ form.preferred_locale(class_="input") }}
+      </label>
+
+      <label>
+        <span>Password</span>
+        {{ form.password(class_="input") }}
+        {% for error in form.password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Confirm password</span>
+        {{ form.confirm_password(class_="input") }}
+        {% for error in form.confirm_password.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <div class="form-actions">
+        {{ form.submit(class_="button") }}
+        <a class="button button-secondary" href="{{ url_for('auth.login') }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

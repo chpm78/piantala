@@ -6,6 +6,7 @@ from pathlib import Path
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy import or_
 
 from .extensions import db
 from .forms import (
@@ -45,8 +46,10 @@ from .models import (
     NodePhoto,
     TranslationEntry,
     DEFAULT_MARKER_COLOR_BY_NODE_TYPE,
-)
+    Site,
+    )
 from .utils import default_node_type, permission_required, save_data_url_upload, save_uploaded_file
+from .site_context import current_site, require_current_site
 from .translations import DEFAULT_LOCALE, DEFAULT_TRANSLATIONS, SUPPORTED_LOCALES
 
 
@@ -69,8 +72,90 @@ MARKER_ICON_SUGGESTIONS = [
 
 
 def _settings() -> GardenSettings:
-    """Return the singleton site-wide settings record."""
-    return GardenSettings.get_or_create()
+    """Return the settings record for the current site."""
+    return GardenSettings.get_or_create(require_current_site())
+
+
+def _site_node_or_404(node_id: int) -> GardenNode:
+    """Return one node belonging to the current site or abort.
+
+    Parameters:
+        node_id: Identifier of the requested node.
+    """
+    site = require_current_site()
+    return (
+        GardenNode.query.filter_by(id=node_id, site_id=site.id).first_or_404()
+    )
+
+
+def _site_activity_or_404(activity_id: int) -> NodeActivity:
+    """Return one activity belonging to the current site or abort.
+
+    Parameters:
+        activity_id: Identifier of the requested activity.
+    """
+    site = require_current_site()
+    return (
+        NodeActivity.query.join(GardenNode)
+        .filter(NodeActivity.id == activity_id, GardenNode.site_id == site.id)
+        .first_or_404()
+    )
+
+
+def _site_photo_or_404(photo_id: int) -> NodePhoto:
+    """Return one photo belonging to the current site or abort.
+
+    Parameters:
+        photo_id: Identifier of the requested photo.
+    """
+    site = require_current_site()
+    return (
+        NodePhoto.query.join(GardenNode)
+        .filter(NodePhoto.id == photo_id, GardenNode.site_id == site.id)
+        .first_or_404()
+    )
+
+
+def _site_link_or_404(link_id: int) -> NodeExternalLink:
+    """Return one external link belonging to the current site or abort.
+
+    Parameters:
+        link_id: Identifier of the requested external link.
+    """
+    site = require_current_site()
+    return (
+        NodeExternalLink.query.join(GardenNode)
+        .filter(NodeExternalLink.id == link_id, GardenNode.site_id == site.id)
+        .first_or_404()
+    )
+
+
+def _site_entity_or_404(entity_id: int) -> NodeHomeAssistantEntity:
+    """Return one HA entity link belonging to the current site or abort.
+
+    Parameters:
+        entity_id: Identifier of the requested entity link.
+    """
+    site = require_current_site()
+    return (
+        NodeHomeAssistantEntity.query.join(GardenNode)
+        .filter(NodeHomeAssistantEntity.id == entity_id, GardenNode.site_id == site.id)
+        .first_or_404()
+    )
+
+
+def _site_irrigation_zone_or_404(zone_id: int) -> NodeIrrigationZone:
+    """Return one irrigation zone belonging to the current site or abort.
+
+    Parameters:
+        zone_id: Identifier of the requested irrigation zone.
+    """
+    site = require_current_site()
+    return (
+        NodeIrrigationZone.query.join(GardenNode)
+        .filter(NodeIrrigationZone.id == zone_id, GardenNode.site_id == site.id)
+        .first_or_404()
+    )
 
 
 def _upload_directory() -> Path:
@@ -423,7 +508,7 @@ def _load_entity_history_payload(
         node: Node whose Home Assistant entities should be charted.
         range_key: Selected time range key such as ``1d`` or ``7d``.
     """
-    ha_settings = HomeAssistantSettings.get_or_create()
+    ha_settings = HomeAssistantSettings.get_or_create(node.site)
     if not node.ha_entities or not ha_settings.is_configured:
         return {}, None
 
@@ -536,7 +621,11 @@ def _clone_scope_candidates(
     """
     candidate_level = node.level + 1
     lower_year = max(target_year - year_range, 0)
-    candidates = GardenNode.query.filter_by(level=candidate_level, life_cycle="annual").all()
+    candidates = GardenNode.query.filter_by(
+        level=candidate_level,
+        life_cycle="annual",
+        site_id=node.site_id,
+    ).all()
     filtered: list[GardenNode] = []
 
     for candidate in candidates:
@@ -620,6 +709,7 @@ def _clone_cultivation_node(source: GardenNode, target_parent: GardenNode, targe
             planting_date = planting_date.replace(year=target_year, day=28)
 
     clone = GardenNode(
+        site=target_parent.site,
         parent=target_parent,
         cloned_from_node=source,
         level=source.level,
@@ -818,7 +908,8 @@ def _apply_manageable_child_position(child: GardenNode, payload: dict[str, objec
 def index():
     """Render the map-first dashboard with top-level locations."""
     settings = _settings()
-    top_level_locations = GardenNode.query.filter_by(parent_id=None).order_by(
+    site = require_current_site()
+    top_level_locations = GardenNode.query.filter_by(parent_id=None, site_id=site.id).order_by(
         GardenNode.sort_order,
         GardenNode.title,
     ).all()
@@ -847,6 +938,7 @@ def index():
 def map_settings():
     """Display and save site-wide map and appearance settings."""
     settings = _settings()
+    site = require_current_site()
     form = MapSettingsForm(obj=settings)
 
     if form.validate_on_submit():
@@ -871,12 +963,12 @@ def map_settings():
             form.processed_map_image_data.data,
             "map",
             image_kind="homepage_map",
-            subfolder="site",
+            subfolder=f"site/{site.id}",
         ) or save_uploaded_file(
             form.map_image.data,
             "map",
             image_kind="homepage_map",
-            subfolder="site",
+            subfolder=f"site/{site.id}",
         )
         if uploaded_map:
             settings.map_image_path = uploaded_map
@@ -908,7 +1000,7 @@ def node_detail(node_id: int):
     Parameters:
         node_id: Identifier of the node to display.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     show_dead_children = request.args.get("show_dead") == "1"
     requested_display_mode = request.args.get("display")
     if requested_display_mode in {"irrigation", "cultivations", "both"}:
@@ -974,17 +1066,18 @@ def node_detail(node_id: int):
         if zone.area_polygon_points
     ]
     entity_form = _home_assistant_entity_form()
+    site = require_current_site()
     catalog_by_entity_id = {
         entry.entity_id: entry
-        for entry in HomeAssistantEntityCatalog.query.all()
+        for entry in HomeAssistantEntityCatalog.query.filter_by(site_id=site.id).all()
     }
-    ha_settings = HomeAssistantSettings.get_or_create()
+    ha_settings = HomeAssistantSettings.get_or_create(site)
     ha_history_charts, ha_history_error = _load_entity_history_payload(
         node,
         range_key=ha_history_range,
     )
     current_year = datetime.now(UTC).year
-    source_sections = GardenNode.query.filter_by(level=2).order_by(GardenNode.title).all()
+    source_sections = GardenNode.query.filter_by(level=2, site_id=site.id).order_by(GardenNode.title).all()
     current_section = node.section_ancestor
     selected_source_section_id = request.args.get("clone_section_id", type=int)
     if selected_source_section_id is None and node.level > 1:
@@ -1040,7 +1133,7 @@ def node_detail(node_id: int):
         irrigation_zone_form=_irrigation_zone_form(),
         ha_catalog_by_entity_id=catalog_by_entity_id,
         ha_is_configured=ha_settings.is_configured,
-        ha_catalog_count=HomeAssistantEntityCatalog.query.count(),
+        ha_catalog_count=HomeAssistantEntityCatalog.query.filter_by(site_id=site.id).count(),
         ha_history_range=ha_history_range,
         ha_history_charts=ha_history_charts,
         ha_history_error=ha_history_error,
@@ -1057,7 +1150,7 @@ def node_entity_history(node_id: int):
     Parameters:
         node_id: Identifier of the node whose entity history should be returned.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     requested_range = request.args.get("range")
     range_key = requested_range if requested_range in {"1d", "7d"} else "1d"
     chart_payload, history_error = _load_entity_history_payload(node, range_key=range_key)
@@ -1079,7 +1172,7 @@ def manage_cultivation_positions(node_id: int):
     Parameters:
         node_id: Identifier of the section or bed whose child positions should be managed.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     if not node.map_view_image:
         flash("Add a map image to this node before managing cultivation positions.", "warning")
         return redirect(url_for("main.edit_node", node_id=node.id))
@@ -1158,7 +1251,7 @@ def clone_cultivations(node_id: int):
     Parameters:
         node_id: Identifier of the section or bed receiving the clones.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     if node.level not in {2, 3}:
         flash("Cultivation cloning is only available on sections and beds.", "warning")
         return redirect(url_for("main.node_detail", node_id=node.id))
@@ -1226,7 +1319,7 @@ def edit_node(node_id: int):
     Parameters:
         node_id: Identifier of the node to update.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     return _upsert_node(parent=node.parent, node=node)
 
 
@@ -1239,7 +1332,7 @@ def create_child_node(node_id: int):
     Parameters:
         node_id: Identifier of the parent node.
     """
-    parent = GardenNode.query.get_or_404(node_id)
+    parent = _site_node_or_404(node_id)
     if not parent.can_have_children():
         flash("This node is already at level 4 and cannot have children.", "warning")
         return redirect(url_for("main.node_detail", node_id=parent.id))
@@ -1414,8 +1507,9 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
     if form.validate_on_submit():
         selected_cultivation_type = cultivation_types_by_id.get(form.cultivation_type_id.data or 0)
         selected_cultivation_variant = cultivation_variants_by_id.get(form.cultivation_type_variant_id.data or 0)
+        site = parent.site if parent is not None else require_current_site()
         if node is None:
-            node = GardenNode(parent_id=parent.id if parent is not None else None, level=level)
+            node = GardenNode(parent_id=parent.id if parent is not None else None, level=level, site=site)
             db.session.add(node)
 
         node.node_type = form.node_type.data
@@ -1623,7 +1717,7 @@ def delete_node(node_id: int):
     Parameters:
         node_id: Identifier of the node to remove.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     parent_id = node.parent_id
     form = DeleteForm()
     if form.validate_on_submit():
@@ -1652,7 +1746,7 @@ def add_photo(node_id: int):
     Parameters:
         node_id: Identifier of the node receiving the imported image.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     form = PhotoForm(prefix="photo")
 
     if form.validate_on_submit():
@@ -1714,7 +1808,7 @@ def add_activity(node_id: int):
     Parameters:
         node_id: Identifier of the node receiving the activity.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     form = _activity_form()
 
     if form.validate_on_submit():
@@ -1774,7 +1868,7 @@ def edit_activity(activity_id: int):
     Parameters:
         activity_id: Identifier of the activity to update.
     """
-    activity = NodeActivity.query.get_or_404(activity_id)
+    activity = _site_activity_or_404(activity_id)
     form = _activity_form(activity)
 
     if request.method == "GET":
@@ -1833,7 +1927,7 @@ def delete_activity(activity_id: int):
     Parameters:
         activity_id: Identifier of the activity to remove.
     """
-    activity = NodeActivity.query.get_or_404(activity_id)
+    activity = _site_activity_or_404(activity_id)
     node_id = activity.node_id
     form = DeleteForm()
     if form.validate_on_submit():
@@ -1857,7 +1951,7 @@ def edit_photo(photo_id: int):
     Parameters:
         photo_id: Identifier of the photo to update.
     """
-    photo = NodePhoto.query.get_or_404(photo_id)
+    photo = _site_photo_or_404(photo_id)
     form = PhotoEditForm(obj=photo)
 
     if request.method == "GET":
@@ -1911,7 +2005,7 @@ def edit_node_image(node_id: int, image_role: str):
         node_id: Identifier of the node whose dedicated image should be replaced.
         image_role: Dedicated image role, either ``display`` or ``map``.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     if image_role not in {"display", "map"}:
         flash("Unknown node image role.", "danger")
         return redirect(url_for("main.edit_node", node_id=node.id))
@@ -1967,7 +2061,7 @@ def delete_node_image(node_id: int, image_role: str):
         node_id: Identifier of the node whose image should be removed.
         image_role: Dedicated image role, either ``display`` or ``map``.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     if image_role not in {"display", "map"}:
         flash("Unknown node image role.", "danger")
         return redirect(url_for("main.edit_node", node_id=node.id))
@@ -2002,7 +2096,7 @@ def delete_photo(photo_id: int):
     Parameters:
         photo_id: Identifier of the photo to remove.
     """
-    photo = NodePhoto.query.get_or_404(photo_id)
+    photo = _site_photo_or_404(photo_id)
     node_id = photo.node_id
     node = photo.node
     form = DeleteForm()
@@ -2037,7 +2131,7 @@ def add_link(node_id: int):
     Parameters:
         node_id: Identifier of the node receiving the link.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     form = _external_link_form()
 
     if form.validate_on_submit():
@@ -2070,7 +2164,7 @@ def delete_link(link_id: int):
     Parameters:
         link_id: Identifier of the link to remove.
     """
-    link = NodeExternalLink.query.get_or_404(link_id)
+    link = _site_link_or_404(link_id)
     node_id = link.node_id
     form = DeleteForm()
     if form.validate_on_submit():
@@ -2089,7 +2183,7 @@ def edit_link(link_id: int):
     Parameters:
         link_id: Identifier of the link to update.
     """
-    link = NodeExternalLink.query.get_or_404(link_id)
+    link = _site_link_or_404(link_id)
     form = _external_link_form()
 
     if request.method == "GET":
@@ -2130,7 +2224,7 @@ def add_entity(node_id: int):
     Parameters:
         node_id: Identifier of the node receiving the entity link.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     form = _home_assistant_entity_form()
 
     if request.method == "GET":
@@ -2192,7 +2286,7 @@ def delete_entity(entity_id: int):
     Parameters:
         entity_id: Identifier of the linked entity record to remove.
     """
-    entity = NodeHomeAssistantEntity.query.get_or_404(entity_id)
+    entity = _site_entity_or_404(entity_id)
     node_id = entity.node_id
     form = DeleteForm()
     if form.validate_on_submit():
@@ -2211,11 +2305,12 @@ def edit_entity(entity_id: int):
     Parameters:
         entity_id: Identifier of the linked entity record to update.
     """
-    entity = NodeHomeAssistantEntity.query.get_or_404(entity_id)
+    entity = _site_entity_or_404(entity_id)
     form = _home_assistant_entity_form()
+    site = require_current_site()
 
     if request.method == "GET":
-        catalog_entry = HomeAssistantEntityCatalog.query.filter_by(entity_id=entity.entity_id).first()
+        catalog_entry = HomeAssistantEntityCatalog.query.filter_by(site_id=site.id, entity_id=entity.entity_id).first()
         if catalog_entry is not None:
             form.discovered_entity.data = catalog_entry.id
         form.label.data = entity.label
@@ -2276,7 +2371,7 @@ def add_irrigation_zone(node_id: int):
     Parameters:
         node_id: Identifier of the node receiving the irrigation zone.
     """
-    node = GardenNode.query.get_or_404(node_id)
+    node = _site_node_or_404(node_id)
     return _upsert_irrigation_zone(node=node, zone=None)
 
 
@@ -2289,7 +2384,7 @@ def edit_irrigation_zone(zone_id: int):
     Parameters:
         zone_id: Identifier of the irrigation zone to update.
     """
-    zone = NodeIrrigationZone.query.get_or_404(zone_id)
+    zone = _site_irrigation_zone_or_404(zone_id)
     return _upsert_irrigation_zone(node=zone.node, zone=zone)
 
 
@@ -2302,7 +2397,7 @@ def delete_irrigation_zone(zone_id: int):
     Parameters:
         zone_id: Identifier of the irrigation zone to remove.
     """
-    zone = NodeIrrigationZone.query.get_or_404(zone_id)
+    zone = _site_irrigation_zone_or_404(zone_id)
     node_id = zone.node_id
     fallback_url = url_for("main.edit_node", node_id=node_id)
     form = DeleteForm()
@@ -2325,9 +2420,10 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
         return redirect(url_for("main.edit_node", node_id=node.id))
 
     form = _irrigation_zone_form(zone)
+    site = require_current_site()
     if request.method == "GET" and zone is not None:
         catalog_entry = (
-            HomeAssistantEntityCatalog.query.filter_by(entity_id=zone.entity_id).first()
+            HomeAssistantEntityCatalog.query.filter_by(site_id=site.id, entity_id=zone.entity_id).first()
             if zone.entity_id
             else None
         )
@@ -2439,7 +2535,8 @@ def _upsert_irrigation_zone(node: GardenNode, zone: NodeIrrigationZone | None):
 def _home_assistant_entity_form() -> HomeAssistantEntityForm:
     """Build the Home Assistant entity form with discovered catalog choices."""
     form = HomeAssistantEntityForm(prefix="entity")
-    catalog_entries = HomeAssistantEntityCatalog.query.order_by(
+    site = require_current_site()
+    catalog_entries = HomeAssistantEntityCatalog.query.filter_by(site_id=site.id).order_by(
         HomeAssistantEntityCatalog.domain,
         HomeAssistantEntityCatalog.friendly_name,
         HomeAssistantEntityCatalog.entity_id,
@@ -2465,7 +2562,8 @@ def _irrigation_zone_form(zone: NodeIrrigationZone | None = None) -> IrrigationZ
     """
     form = IrrigationZoneForm(prefix="irrigation")
     labels = _localized_labels()
-    catalog_entries = HomeAssistantEntityCatalog.query.order_by(
+    site = require_current_site()
+    catalog_entries = HomeAssistantEntityCatalog.query.filter_by(site_id=site.id).order_by(
         HomeAssistantEntityCatalog.domain,
         HomeAssistantEntityCatalog.friendly_name,
         HomeAssistantEntityCatalog.entity_id,

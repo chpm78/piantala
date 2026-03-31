@@ -8,10 +8,42 @@
     <div class="panel-header">
       <div>
         <p class="eyebrow">{{ tr("admin.heading") }}</p>
-        <h1>{{ tr("users.title") }}</h1>
-        <p>{{ tr("users.description") }}</p>
+        <h1>Site members</h1>
+        <p>Manage who can access <strong>{{ site.name }}</strong> and what role they have on this site.</p>
       </div>
-      <a class="button" href="{{ url_for('admin.create_user') }}">{{ tr("users.create") }}</a>
+    </div>
+
+    <form method="post" action="{{ url_for('admin.invite_site_user') }}" class="form-grid two-col">
+      {{ invite_form.hidden_tag() }}
+
+      <label>
+        <span>Invite email</span>
+        {{ invite_form.email(class_="input") }}
+        {% for error in invite_form.email.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>Role</span>
+        {{ invite_form.role_id(class_="input") }}
+        {% for error in invite_form.role_id.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <div class="form-actions full-width">
+        {{ invite_form.submit(class_="button") }}
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">{{ tr("users.title") }}</p>
+        <h2>Members</h2>
+      </div>
     </div>
 
     <div class="table-wrap">
@@ -24,31 +56,71 @@
             <th>{{ tr("users.roles") }}</th>
             <th>{{ tr("users.status") }}</th>
             <th>{{ tr("users.last_login") }}</th>
-            <th>{{ tr("audit.title") }}</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {% for user in users %}
+          {% for membership in memberships %}
             <tr>
-              <td>{{ user.username }}</td>
-              <td>{{ user.email or '' }}</td>
-              <td>{{ tr("locale." ~ user.preferred_locale, user.preferred_locale) }}</td>
-              <td>{{ ", ".join(user.role_names()) }}</td>
-              <td>{{ tr("users.active") if user.is_active else tr("users.disabled") }}</td>
+              <td>{{ membership.user.username }}</td>
+              <td>{{ membership.user.email or '' }}</td>
+              <td>{{ tr("locale." ~ membership.user.preferred_locale, membership.user.preferred_locale) }}</td>
+              <td>{{ membership.role.name }}</td>
+              <td>{{ tr("users.active") if membership.user.is_active else tr("users.disabled") }}</td>
               <td>
-                {% if user.last_login_at %}
-                  {{ user.last_login_at.strftime("%d/%m/%Y %H:%M") }}
+                {% if membership.user.last_login_at %}
+                  {{ membership.user.last_login_at.strftime("%d/%m/%Y %H:%M") }}
                 {% endif %}
               </td>
               <td>
-                {% set item = user %}
-                {% include "_audit_meta.html" %}
-              </td>
-              <td>
-                <a class="text-link" href="{{ url_for('admin.edit_user', user_id=user.id) }}">{{ tr("common.edit") }}</a>
+                <a class="text-link" href="{{ url_for('admin.edit_user', user_id=membership.user.id) }}">Edit user</a>
               </td>
             </tr>
+          {% else %}
+            <tr><td colspan="7" class="muted">No members yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Invitations</p>
+        <h2>Pending invitations</h2>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>{{ tr("users.email") }}</th>
+            <th>{{ tr("users.roles") }}</th>
+            <th>Sent at</th>
+            <th>Expires</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for token in pending_invites %}
+            <tr>
+              <td>{{ token.email }}</td>
+              <td>{{ token.role.name if token.role else '' }}</td>
+              <td>{{ token.created_at.strftime("%d/%m/%Y %H:%M") }}</td>
+              <td>{{ token.expires_at.strftime("%d/%m/%Y %H:%M") }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin.delete_site_invitation', token_id=token.id) }}">
+                  {{ delete_form.hidden_tag() }}
+                  <button type="submit" class="icon-button" title="Delete invitation">
+                    <span class="mdi mdi-delete"></span>
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="muted">No pending invitations.</td></tr>
           {% endfor %}
         </tbody>
       </table>

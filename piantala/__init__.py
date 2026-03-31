@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, UTC
 import tomllib
 from importlib.metadata import PackageNotFoundError, version as package_version
 
@@ -17,12 +18,16 @@ from .models import (
     GardenSettings,
     NodeActivityImage,
     NodePhoto,
+    PlatformSettings,
     Role,
+    SiteMembership,
     TranslationEntry,
     User,
     ensure_seed_data,
+    _ensure_default_site,
     sync_schema,
 )
+from .site_context import current_site, ensure_current_site
 from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 
@@ -274,12 +279,28 @@ def create_app() -> Flask:
         if admin_role is None:
             raise click.ClickException("Admin role missing. Run `flask --app app init-db` first.")
 
-        user = User(username=username, email=email or None, is_active=True)
+        user = User(
+            username=username,
+            email=email or None,
+            is_active=True,
+            email_confirmed_at=datetime.now(UTC) if email else None,
+        )
         user.set_password(password)
         user.roles.append(admin_role)
         db.session.add(user)
+        db.session.flush()
+        default_site = _ensure_default_site()
+        membership = SiteMembership.query.filter_by(site_id=default_site.id, user_id=user.id).first()
+        if membership is None:
+            db.session.add(SiteMembership(site=default_site, user=user, role=admin_role))
         db.session.commit()
         click.echo(f"Admin user `{username}` created.")
+
+    @app.before_request
+    def _bind_current_site() -> None:
+        """Keep one valid current site in session for authenticated users."""
+        if current_user.is_authenticated:
+            ensure_current_site()
 
     @app.context_processor
     def inject_globals() -> dict[str, str | bool]:
@@ -292,13 +313,18 @@ def create_app() -> Flask:
         current_locale = DEFAULT_LOCALE
         localized_entries: dict[str, str] = {}
         fallback_entries: dict[str, str] = {}
+        selected_site = None
+        platform_settings = None
         try:
+            selected_site = current_site()
             if inspect(db.engine).has_table(GardenSettings.__tablename__):
-                settings = GardenSettings.get_or_create()
+                settings = GardenSettings.get_or_create(selected_site)
                 site_name = settings.site_name
                 load_leaflet = settings.map_provider in {"openstreetmap", "opentopomap"}
                 app_theme = settings.color_scheme
                 app_font = settings.font_family
+            if inspect(db.engine).has_table(PlatformSettings.__tablename__):
+                platform_settings = PlatformSettings.get_or_create()
 
             supported_codes = [code for code, _label in SUPPORTED_LOCALES]
             if current_user.is_authenticated and current_user.preferred_locale in supported_codes:
@@ -336,6 +362,9 @@ def create_app() -> Flask:
             "load_leaflet": load_leaflet,
             "app_theme": app_theme,
             "app_font": app_font,
+            "selected_site": selected_site,
+            "accessible_sites": current_user.accessible_sites if current_user.is_authenticated else [],
+            "platform_settings": platform_settings,
             "current_locale": current_locale,
             "available_locales": SUPPORTED_LOCALES,
             "tr": tr,

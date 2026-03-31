@@ -34,6 +34,15 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+    depends_on:
+      - mailpit
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    container_name: piantala_mailpit
+    restart: unless-stopped
+    ports:
+      - "${PIANTALA_MAIL_UI_PORT:-8025}:8025"
 
 volumes:
   piantala-instance:

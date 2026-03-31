@@ -5,7 +5,7 @@
     <div class="panel-header">
       <p class="eyebrow">Piantala</p>
       <h1>Log in</h1>
-      <p>Sign in to manage your garden map, photos, links, and plant details.</p>
+      <p>Sign in with your username or confirmed email to manage your garden map, photos, links, and plant details.</p>
     </div>
 
     <form method="post" class="form-grid">
@@ -34,6 +34,9 @@
 
       {{ form.submit(class_="button") }}
     </form>
+
+    {% if platform_settings and platform_settings.allow_self_registration %}
+      <p class="muted">Need an account? <a class="text-link" href="{{ url_for('auth.register') }}">Create a new site</a>.</p>
+    {% endif %}
   </section>
 {% endblock %}
-
