@@ -4,6 +4,11 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.6.0b2] - 2026-04-01
+
+### Fixed
+- Docker bootstrap admins are now marked as email-confirmed automatically, so beta demo deployments can log in immediately without a manual database fix.
+
 ## [0.6.0b1] - 2026-03-31
 
 ### Added
