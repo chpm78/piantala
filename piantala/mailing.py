@@ -43,6 +43,7 @@ def send_email(*, to_email: str, subject: str, text_body: str) -> None:
     message.set_content(text_body)
 
     timeout = 20
+    requires_auth = bool(settings.smtp_username) and settings.smtp_preset != "docker_mailpit"
     try:
         if settings.smtp_use_ssl:
             context = ssl.create_default_context()
@@ -52,7 +53,7 @@ def send_email(*, to_email: str, subject: str, text_body: str) -> None:
                 timeout=timeout,
                 context=context,
             ) as client:
-                if settings.smtp_username:
+                if requires_auth:
                     client.login(settings.smtp_username, settings.smtp_password or "")
                 client.send_message(message)
             return
@@ -62,7 +63,7 @@ def send_email(*, to_email: str, subject: str, text_body: str) -> None:
             if settings.smtp_use_tls:
                 client.starttls(context=ssl.create_default_context())
                 client.ehlo()
-            if settings.smtp_username:
+            if requires_auth:
                 client.login(settings.smtp_username, settings.smtp_password or "")
             client.send_message(message)
     except OSError as exc:

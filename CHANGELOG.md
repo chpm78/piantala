@@ -4,6 +4,11 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.6.0b3] - 2026-04-01
+
+### Fixed
+- The Docker Mailpit preset no longer attempts SMTP authentication, even if old SMTP credentials were still stored in access settings.
+
 ## [0.6.0b2] - 2026-04-01
 
 ### Fixed

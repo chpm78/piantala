@@ -751,7 +751,10 @@ def access_settings():
         settings.smtp_host = form.smtp_host.data
         settings.smtp_port = form.smtp_port.data or 587
         settings.smtp_username = form.smtp_username.data
-        if form.smtp_password.data:
+        if settings.smtp_preset == "docker_mailpit":
+            settings.smtp_username = None
+            settings.smtp_password = None
+        elif form.smtp_password.data:
             settings.smtp_password = form.smtp_password.data
         settings.smtp_use_tls = form.smtp_use_tls.data
         settings.smtp_use_ssl = form.smtp_use_ssl.data
