@@ -345,6 +345,7 @@ class PlatformSettings(AuditMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True, default=1)
     allow_self_registration = db.Column(db.Boolean, nullable=False, default=False)
+    total_webapp_storage_limit_mb = db.Column(db.Integer, nullable=False, default=1024)
     public_base_url = db.Column(db.String(255), nullable=True)
     mail_from_name = db.Column(db.String(120), nullable=True)
     mail_from_email = db.Column(db.String(255), nullable=True)
@@ -611,6 +612,7 @@ class GardenSettings(AuditMixin, db.Model):
     font_family = db.Column(db.String(32), nullable=False, default="classic_serif")
     default_locale = db.Column(db.String(8), nullable=False, default=DEFAULT_LOCALE)
     map_image_path = db.Column(db.String(255), nullable=True)
+    site_storage_limit_mb = db.Column(db.Integer, nullable=False, default=50)
     homepage_map_max_dimension = db.Column(db.Integer, nullable=False, default=2560)
     node_display_max_dimension = db.Column(db.Integer, nullable=False, default=2200)
     node_map_max_dimension = db.Column(db.Integer, nullable=False, default=2560)
@@ -2652,6 +2654,10 @@ def sync_schema() -> None:
             ),
         },
         "platform_settings": {
+            "total_webapp_storage_limit_mb": (
+                "ALTER TABLE platform_settings "
+                "ADD COLUMN total_webapp_storage_limit_mb INTEGER NOT NULL DEFAULT 1024"
+            ),
             "smtp_preset": (
                 "ALTER TABLE platform_settings "
                 "ADD COLUMN smtp_preset VARCHAR(32) NOT NULL DEFAULT 'custom'"
@@ -2685,6 +2691,10 @@ def sync_schema() -> None:
             "default_locale": (
                 "ALTER TABLE garden_settings "
                 f"ADD COLUMN default_locale VARCHAR(8) NOT NULL DEFAULT '{DEFAULT_LOCALE}'"
+            ),
+            "site_storage_limit_mb": (
+                "ALTER TABLE garden_settings "
+                "ADD COLUMN site_storage_limit_mb INTEGER NOT NULL DEFAULT 50"
             ),
             "homepage_map_max_dimension": (
                 "ALTER TABLE garden_settings "

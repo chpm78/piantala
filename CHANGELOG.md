@@ -4,6 +4,14 @@ All notable changes to Piantala are documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning as a practical guide for release milestones.
 
+## [0.6.0b4] - 2026-04-03
+
+### Added
+- Admin storage now lets you configure a per-site storage limit and a total webapp storage limit, with current usage and remaining space shown directly on the page.
+
+### Fixed
+- Uploads are now blocked cleanly when they would exceed the current site quota or the total installation quota, with a visible form error instead of partial saves.
+
 ## [0.6.0b3] - 2026-04-01
 
 ### Fixed

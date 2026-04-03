@@ -25,6 +25,7 @@ from .forms import (
     MarkerColorForm,
     SMTP_PROVIDER_DEFAULTS,
     SiteInviteForm,
+    StorageLimitsForm,
     UserForm,
 )
 from .mailing import MailError, send_email
@@ -53,7 +54,15 @@ from .models import (
     User,
 )
 from .site_context import current_site, require_current_site
-from .utils import permission_required, save_uploaded_file
+from .utils import (
+    StorageLimitError,
+    permission_required,
+    save_uploaded_file,
+    site_storage_usage_bytes,
+    storage_quota_summary,
+    total_webapp_storage_usage_bytes,
+    upload_directory_size_bytes,
+)
 from .translations import DEFAULT_LOCALE, SUPPORTED_LOCALES
 
 
@@ -644,23 +653,42 @@ def delete_mdi_icon(icon_id: int):
     return redirect(url_for("admin.mdi_icons"))
 
 
-@bp.route("/storage")
+@bp.route("/storage", methods=["GET", "POST"])
 @login_required
 @permission_required("manage_users")
 def storage():
     """Show database and upload directory usage for administrators."""
+    site = require_current_site()
+    site_settings = GardenSettings.get_or_create(site)
+    platform_settings = PlatformSettings.get_or_create()
+    form = StorageLimitsForm()
+    if request.method == "GET":
+        form.site_storage_limit_mb.data = site_settings.site_storage_limit_mb
+        form.total_webapp_storage_limit_mb.data = platform_settings.total_webapp_storage_limit_mb
+    elif form.validate_on_submit():
+        site_settings.site_storage_limit_mb = form.site_storage_limit_mb.data
+        platform_settings.total_webapp_storage_limit_mb = form.total_webapp_storage_limit_mb.data
+        db.session.commit()
+        flash("Storage limits updated.", "success")
+        return redirect(url_for("admin.storage"))
+
     db_path = _sqlite_database_path()
     db_size_bytes = None
     if db_path is not None and db_path.exists():
         db_size_bytes = db_path.stat().st_size
 
     upload_dir = _upload_directory()
-    upload_size_bytes = _upload_directory_size(upload_dir)
+    upload_size_bytes = upload_directory_size_bytes()
     upload_file_count = len([path for path in upload_dir.rglob("*") if path.is_file()]) if upload_dir.exists() else 0
+    quota = storage_quota_summary(site=site)
+    site_usage_bytes = site_storage_usage_bytes(site)
+    total_usage_bytes = total_webapp_storage_usage_bytes()
 
     return render_template(
         "admin_storage.html",
-        settings=GardenSettings.get_or_create(),
+        settings=site_settings,
+        form=form,
+        current_site=site,
         image_tools_available=Image is not None,
         db_path=str(db_path) if db_path is not None else None,
         db_size_bytes=db_size_bytes,
@@ -670,6 +698,11 @@ def storage():
         upload_size_label=_format_bytes(upload_size_bytes),
         upload_file_count=upload_file_count,
         image_dir=str(upload_dir),
+        site_usage_bytes=site_usage_bytes,
+        site_usage_label=_format_bytes(site_usage_bytes),
+        total_usage_bytes=total_usage_bytes,
+        total_usage_label=_format_bytes(total_usage_bytes),
+        quota=quota,
     )
 
 
@@ -1806,12 +1839,24 @@ def add_cultivation_type_image(cultivation_type_id: int):
         if form.image.data is None or not form.image.data.filename:
             form.image.errors.append("Choose an image to upload.")
         else:
-            image_path = save_uploaded_file(
-                form.image.data,
-                "cultivation-type",
-                image_kind="node_photo",
-                subfolder=f"cultivation-types/{cultivation_type.id}",
-            )
+            try:
+                image_path = save_uploaded_file(
+                    form.image.data,
+                    "cultivation-type",
+                    image_kind="node_photo",
+                    subfolder=f"cultivation-types/{cultivation_type.id}",
+                    enforce_site_limit=False,
+                )
+            except StorageLimitError as exc:
+                form.image.errors.append(str(exc))
+                flash(str(exc), "danger")
+                return render_template(
+                    "cultivation_type_image_form.html",
+                    form=form,
+                    cultivation_type=cultivation_type,
+                    image_record=None,
+                    settings=GardenSettings.get_or_create(),
+                )
             image_title = (form.title.data or "").strip() or Path(form.image.data.filename).stem
             db.session.add(
                 CultivationTypeImage(
@@ -1853,12 +1898,24 @@ def edit_cultivation_type_image(image_id: int):
         image_record.caption = _normalized_optional_text(form.caption.data)
         image_record.sort_order = form.sort_order.data or 0
         if form.image.data is not None and form.image.data.filename:
-            image_record.image_path = save_uploaded_file(
-                form.image.data,
-                "cultivation-type",
-                image_kind="node_photo",
-                subfolder=f"cultivation-types/{cultivation_type.id}",
-            )
+            try:
+                image_record.image_path = save_uploaded_file(
+                    form.image.data,
+                    "cultivation-type",
+                    image_kind="node_photo",
+                    subfolder=f"cultivation-types/{cultivation_type.id}",
+                    enforce_site_limit=False,
+                )
+            except StorageLimitError as exc:
+                form.image.errors.append(str(exc))
+                flash(str(exc), "danger")
+                return render_template(
+                    "cultivation_type_image_form.html",
+                    form=form,
+                    cultivation_type=cultivation_type,
+                    image_record=image_record,
+                    settings=GardenSettings.get_or_create(),
+                )
         db.session.commit()
         flash("Cultivation type image updated.", "success")
         return redirect(url_for("admin.edit_cultivation_type", cultivation_type_id=cultivation_type.id))

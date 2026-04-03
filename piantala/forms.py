@@ -208,6 +208,20 @@ class PlatformSettingsForm(FlaskForm):
         return True
 
 
+class StorageLimitsForm(FlaskForm):
+    site_storage_limit_mb = IntegerField(
+        "Current site storage limit (MB)",
+        validators=[DataRequired(), NumberRange(min=1, max=102400)],
+        default=50,
+    )
+    total_webapp_storage_limit_mb = IntegerField(
+        "Total webapp storage limit (MB)",
+        validators=[DataRequired(), NumberRange(min=10, max=1048576)],
+        default=1024,
+    )
+    submit = SubmitField("Save storage limits")
+
+
 class MapSettingsForm(FlaskForm):
     site_name = StringField("Site name", validators=[DataRequired(), Length(max=120)])
     welcome_text = TextAreaField("Welcome text", validators=[DataRequired(), Length(max=1000)])

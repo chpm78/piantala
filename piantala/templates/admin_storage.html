@@ -23,6 +23,26 @@
     <div class="card-grid">
       <article class="card">
         <div class="card-body">
+          <p class="eyebrow">Current Site Storage</p>
+          <h3>{{ site_usage_label }}</h3>
+          <p><strong>Site:</strong> {{ current_site.name }}</p>
+          <p><strong>Limit:</strong> {{ quota.site_limit_label }}</p>
+          <p><strong>Remaining:</strong> {{ quota.site_remaining_label }}</p>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-body">
+          <p class="eyebrow">Total Webapp Storage</p>
+          <h3>{{ total_usage_label }}</h3>
+          <p><strong>Limit:</strong> {{ quota.total_limit_label }}</p>
+          <p><strong>Remaining:</strong> {{ quota.total_remaining_label }}</p>
+          <p><strong>Includes:</strong> database + uploads</p>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-body">
           <p class="eyebrow">{{ tr("admin.storage.database") }}</p>
           <h3>{{ db_size_label }}</h3>
           {% if db_path %}
@@ -44,5 +64,31 @@
         </div>
       </article>
     </div>
+
+    <form method="post" class="form-grid two-col" style="margin-top: 1.5rem;">
+      {{ form.hidden_tag() }}
+
+      <label>
+        <span>{{ form.site_storage_limit_mb.label.text }}</span>
+        {{ form.site_storage_limit_mb(class_="input") }}
+        <small class="muted">Default: 50 MB for each site.</small>
+        {% for error in form.site_storage_limit_mb.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <label>
+        <span>{{ form.total_webapp_storage_limit_mb.label.text }}</span>
+        {{ form.total_webapp_storage_limit_mb(class_="input") }}
+        <small class="muted">Global protection limit for the whole installation.</small>
+        {% for error in form.total_webapp_storage_limit_mb.errors %}
+          <small class="field-error">{{ error }}</small>
+        {% endfor %}
+      </label>
+
+      <div class="form-actions full-width">
+        {{ form.submit(class_="button") }}
+      </div>
+    </form>
   </section>
 {% endblock %}

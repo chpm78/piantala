@@ -48,7 +48,13 @@ from .models import (
     DEFAULT_MARKER_COLOR_BY_NODE_TYPE,
     Site,
     )
-from .utils import default_node_type, permission_required, save_data_url_upload, save_uploaded_file
+from .utils import (
+    StorageLimitError,
+    default_node_type,
+    permission_required,
+    save_data_url_upload,
+    save_uploaded_file,
+)
 from .site_context import current_site, require_current_site
 from .translations import DEFAULT_LOCALE, DEFAULT_TRANSLATIONS, SUPPORTED_LOCALES
 
@@ -959,17 +965,22 @@ def map_settings():
         )
         settings.google_maps_zoom = form.google_maps_zoom.data or 19
 
-        uploaded_map = save_data_url_upload(
-            form.processed_map_image_data.data,
-            "map",
-            image_kind="homepage_map",
-            subfolder=f"site/{site.id}",
-        ) or save_uploaded_file(
-            form.map_image.data,
-            "map",
-            image_kind="homepage_map",
-            subfolder=f"site/{site.id}",
-        )
+        try:
+            uploaded_map = save_data_url_upload(
+                form.processed_map_image_data.data,
+                "map",
+                image_kind="homepage_map",
+                subfolder=f"site/{site.id}",
+            ) or save_uploaded_file(
+                form.map_image.data,
+                "map",
+                image_kind="homepage_map",
+                subfolder=f"site/{site.id}",
+            )
+        except StorageLimitError as exc:
+            form.map_image.errors.append(str(exc))
+            _flash_form_errors(form, "Map settings could not be saved. Check the highlighted fields.")
+            return render_template("map_settings.html", form=form, settings=settings)
         if uploaded_map:
             settings.map_image_path = uploaded_map
         settings.homepage_map_max_dimension = form.homepage_map_max_dimension.data
@@ -1681,17 +1692,22 @@ def _upsert_node(parent: GardenNode | None, node: GardenNode | None):
             db.session.flush()
 
         image_kind = "node_map" if form.hero_image_role.data == "map" else "node_display"
-        uploaded_image = save_data_url_upload(
-            form.processed_hero_image_data.data,
-            f"node-{level}",
-            image_kind=image_kind,
-            subfolder=f"nodes/{node.id}",
-        ) or save_uploaded_file(
-            form.hero_image.data,
-            f"node-{level}",
-            image_kind=image_kind,
-            subfolder=f"nodes/{node.id}",
-        )
+        try:
+            uploaded_image = save_data_url_upload(
+                form.processed_hero_image_data.data,
+                f"node-{level}",
+                image_kind=image_kind,
+                subfolder=f"nodes/{node.id}",
+            ) or save_uploaded_file(
+                form.hero_image.data,
+                f"node-{level}",
+                image_kind=image_kind,
+                subfolder=f"nodes/{node.id}",
+            )
+        except StorageLimitError as exc:
+            form.hero_image.errors.append(str(exc))
+            _flash_form_errors(form, "Node could not be saved. Check the highlighted fields.")
+            return render_node_form()
         if uploaded_image:
             if form.hero_image_role.data == "map":
                 node.map_image_path = uploaded_image
@@ -1752,17 +1768,27 @@ def add_photo(node_id: int):
     if form.validate_on_submit():
         image = form.image.data
         taken_at = extract_exif_taken_at(image) or datetime.now(UTC)
-        image_path = save_data_url_upload(
-            form.processed_image_data.data,
-            f"photo-{node.id}",
-            image_kind="node_photo",
-            subfolder=f"nodes/{node.id}",
-        ) or save_uploaded_file(
-            image,
-            f"photo-{node.id}",
-            image_kind="node_photo",
-            subfolder=f"nodes/{node.id}",
-        )
+        try:
+            image_path = save_data_url_upload(
+                form.processed_image_data.data,
+                f"photo-{node.id}",
+                image_kind="node_photo",
+                subfolder=f"nodes/{node.id}",
+            ) or save_uploaded_file(
+                image,
+                f"photo-{node.id}",
+                image_kind="node_photo",
+                subfolder=f"nodes/{node.id}",
+            )
+        except StorageLimitError as exc:
+            form.image.errors.append(str(exc))
+            flash(str(exc), "danger")
+            return render_template(
+                "photo_import_form.html",
+                form=form,
+                node=node,
+                settings=_settings(),
+            )
 
         if not image_path:
             flash("Image could not be saved. Try again.", "danger")
@@ -1823,17 +1849,29 @@ def add_activity(node_id: int):
         db.session.flush()
 
         image = form.image.data
-        image_path = save_data_url_upload(
-            form.processed_image_data.data,
-            f"activity-{activity.id}",
-            image_kind="activity_image",
-            subfolder=f"nodes/{node.id}",
-        ) or save_uploaded_file(
-            image,
-            f"activity-{activity.id}",
-            image_kind="activity_image",
-            subfolder=f"nodes/{node.id}",
-        )
+        try:
+            image_path = save_data_url_upload(
+                form.processed_image_data.data,
+                f"activity-{activity.id}",
+                image_kind="activity_image",
+                subfolder=f"nodes/{node.id}",
+            ) or save_uploaded_file(
+                image,
+                f"activity-{activity.id}",
+                image_kind="activity_image",
+                subfolder=f"nodes/{node.id}",
+            )
+        except StorageLimitError as exc:
+            form.image.errors.append(str(exc))
+            flash(str(exc), "danger")
+            return render_template(
+                "activity_form.html",
+                form=form,
+                activity=None,
+                node=node,
+                settings=_settings(),
+                delete_form=DeleteForm(),
+            )
         if image_path:
             db.session.add(
                 NodeActivityImage(
@@ -1884,17 +1922,29 @@ def edit_activity(activity_id: int):
         activity.description = form.description.data.strip()
 
         image = form.image.data
-        image_path = save_data_url_upload(
-            form.processed_image_data.data,
-            f"activity-{activity.id}",
-            image_kind="activity_image",
-            subfolder=f"nodes/{activity.node_id}",
-        ) or save_uploaded_file(
-            image,
-            f"activity-{activity.id}",
-            image_kind="activity_image",
-            subfolder=f"nodes/{activity.node_id}",
-        )
+        try:
+            image_path = save_data_url_upload(
+                form.processed_image_data.data,
+                f"activity-{activity.id}",
+                image_kind="activity_image",
+                subfolder=f"nodes/{activity.node_id}",
+            ) or save_uploaded_file(
+                image,
+                f"activity-{activity.id}",
+                image_kind="activity_image",
+                subfolder=f"nodes/{activity.node_id}",
+            )
+        except StorageLimitError as exc:
+            form.image.errors.append(str(exc))
+            flash(str(exc), "danger")
+            return render_template(
+                "activity_form.html",
+                form=form,
+                activity=activity,
+                node=activity.node,
+                settings=_settings(),
+                delete_form=DeleteForm(),
+            )
         if image_path:
             db.session.add(
                 NodeActivityImage(
@@ -1964,17 +2014,28 @@ def edit_photo(photo_id: int):
         photo.image_role = form.image_role.data
         photo.caption = form.caption.data.strip() if form.caption.data else None
         photo.taken_at = datetime.combine(form.taken_at.data, datetime.min.time(), tzinfo=UTC)
-        uploaded_image = save_data_url_upload(
-            form.processed_image_data.data,
-            f"photo-{photo.node_id}",
-            image_kind="node_photo",
-            subfolder=f"nodes/{photo.node_id}",
-        ) or save_uploaded_file(
-            form.image.data,
-            f"photo-{photo.node_id}",
-            image_kind="node_photo",
-            subfolder=f"nodes/{photo.node_id}",
-        )
+        try:
+            uploaded_image = save_data_url_upload(
+                form.processed_image_data.data,
+                f"photo-{photo.node_id}",
+                image_kind="node_photo",
+                subfolder=f"nodes/{photo.node_id}",
+            ) or save_uploaded_file(
+                form.image.data,
+                f"photo-{photo.node_id}",
+                image_kind="node_photo",
+                subfolder=f"nodes/{photo.node_id}",
+            )
+        except StorageLimitError as exc:
+            form.image.errors.append(str(exc))
+            flash(str(exc), "danger")
+            return render_template(
+                "photo_form.html",
+                form=form,
+                photo=photo,
+                node=photo.node,
+                settings=_settings(),
+            )
         if uploaded_image:
             photo.image_path = uploaded_image
         if form.is_default.data:
@@ -2018,17 +2079,30 @@ def edit_node_image(node_id: int, image_role: str):
     form = NodeImageEditForm()
     if form.validate_on_submit():
         image_kind = "node_map" if image_role == "map" else "node_display"
-        uploaded_image = save_data_url_upload(
-            form.processed_image_data.data,
-            f"node-{node.id}",
-            image_kind=image_kind,
-            subfolder=f"nodes/{node.id}",
-        ) or save_uploaded_file(
-            form.image.data,
-            f"node-{node.id}",
-            image_kind=image_kind,
-            subfolder=f"nodes/{node.id}",
-        )
+        try:
+            uploaded_image = save_data_url_upload(
+                form.processed_image_data.data,
+                f"node-{node.id}",
+                image_kind=image_kind,
+                subfolder=f"nodes/{node.id}",
+            ) or save_uploaded_file(
+                form.image.data,
+                f"node-{node.id}",
+                image_kind=image_kind,
+                subfolder=f"nodes/{node.id}",
+            )
+        except StorageLimitError as exc:
+            form.image.errors.append(str(exc))
+            flash(str(exc), "danger")
+            return render_template(
+                "node_image_edit_form.html",
+                form=form,
+                node=node,
+                image_role=image_role,
+                current_image_path=current_path,
+                delete_form=DeleteForm(),
+                settings=_settings(),
+            )
         if not uploaded_image:
             flash("Image could not be saved. Try again.", "danger")
         else:
